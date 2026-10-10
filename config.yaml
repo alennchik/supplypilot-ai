@@ -1,0 +1,17 @@
+project:
+  name: SupplyPilot AI
+  version: "0.1.0"
+  random_seed: 42
+
+data:
+  num_products: 20
+  num_warehouses: 3
+  forecast_horizon_days: 28
+
+inventory:
+  service_level: 0.95
+  review_period_days: 7
+
+forecasting:
+  seasonal_period: 7
+  moving_average_window: 28

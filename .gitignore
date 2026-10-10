@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SupplyPilot AI datasets
+data/raw/
+data/processed/
