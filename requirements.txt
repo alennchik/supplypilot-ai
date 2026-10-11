@@ -2,4 +2,4 @@ pandas
 numpy
 pytest
 ruff
-PyYAML
+PyYAMLmatplotlib==3.11.2
