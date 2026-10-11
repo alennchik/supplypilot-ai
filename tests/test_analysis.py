@@ -5,6 +5,7 @@ from src.analysis import (
     analyze_sales_dataset,
     calculate_sales_statistics,
     get_daily_sales,
+    get_products_with_most_zero_sales,
     get_top_products,
 )
 
@@ -114,3 +115,40 @@ def test_get_daily_sales(tmp_path):
     assert result.index.tolist() == ["d_1", "d_2", "d_10"]
     assert result.tolist() == [8, 10, 11]
     assert result.sum() == 29
+
+
+
+def test_get_products_with_most_zero_sales(tmp_path):
+    df = pd.DataFrame({
+        "id": ["A_CA", "B_CA"],
+        "item_id": ["A", "B"],
+        "dept_id": ["FOODS"] * 2,
+        "cat_id": ["FOODS"] * 2,
+        "store_id": ["CA_1"] * 2,
+        "state_id": ["CA"] * 2,
+        "d_1": [0, 5],
+        "d_2": [0, 0],
+        "d_3": [4, 3],
+    })
+
+    csv_path = tmp_path / "sales.csv"
+    df.to_csv(csv_path, index=False)
+
+    result = get_products_with_most_zero_sales(
+        str(csv_path),
+        top_n=2,
+        chunk_size=1,
+    )
+
+    assert result.index.tolist() == ["A", "B"]
+    assert result["zero_days"].tolist() == [2, 1]
+    assert result["total_days"].tolist() == [3, 3]
+    assert result["zero_percentage"].iloc[0] == pytest.approx(200 / 3)
+
+
+def test_invalid_zero_sales_top_n(tmp_path):
+    with pytest.raises(ValueError, match="top_n must be positive"):
+        get_products_with_most_zero_sales(
+            str(tmp_path / "sales.csv"),
+            top_n=0,
+        )

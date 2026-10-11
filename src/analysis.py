@@ -68,3 +68,44 @@ def get_daily_sales(path: str, chunk_size: int = 100) -> pd.Series:
     return result.sort_index(
         key=lambda days: days.str.replace("d_", "", regex=False).astype(int)
     )
+
+
+def get_products_with_most_zero_sales(
+    path: str,
+    top_n: int = 10,
+    chunk_size: int = 100,
+) -> pd.DataFrame:
+    """Find products with the highest percentage of zero-sales days."""
+    if top_n <= 0:
+        raise ValueError("top_n must be positive")
+
+    product_stats = {}
+
+    for chunk in process_sales_in_chunks(path, chunk_size):
+        stats = chunk.groupby("item_id")["sales"].agg(
+            zero_days=lambda sales: (sales == 0).sum(),
+            total_days="count",
+        )
+
+        for item_id, row in stats.iterrows():
+            if item_id not in product_stats:
+                product_stats[item_id] = [0, 0]
+
+            product_stats[item_id][0] += int(row["zero_days"])
+            product_stats[item_id][1] += int(row["total_days"])
+
+    results = pd.DataFrame.from_dict(
+        product_stats,
+        orient="index",
+        columns=["zero_days", "total_days"],
+    )
+
+    results.index.name = "item_id"
+    results["zero_percentage"] = (
+        results["zero_days"] / results["total_days"] * 100
+    )
+
+    return results.sort_values(
+        ["zero_percentage", "zero_days"],
+        ascending=False,
+    ).head(top_n)
