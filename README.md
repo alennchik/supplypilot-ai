@@ -8,7 +8,7 @@ SupplyPilot AI is a Python-based supply chain analytics project designed to fore
 
 The project uses the Walmart M5 Forecasting dataset to develop and evaluate demand forecasting methods. Its long-term goal is to connect reliable forecasts with inventory planning, stockout risk analysis, and actionable replenishment recommendations.
 
-**Current status:** Data engineering, exploratory analysis, time-series feature engineering, and preliminary forecasting baselines are implemented. Wide-format Apache Parquet storage, data integrity verification, and performance benchmarking have been implemented in the current development branch. Machine learning models and inventory optimization are planned.
+**Current status:** Data engineering, exploratory analysis, time-series feature engineering, and preliminary forecasting baselines are implemented. Wide-format Apache Parquet storage, data integrity verification, and performance benchmarking have been implemented. Machine learning models and inventory optimization are planned.
 
 ## Current Features
 
@@ -225,7 +225,7 @@ Additional capabilities, including PostgreSQL integration, a backend API, and an
 
 ### Next Milestones
 
-- [ ] Complete Parquet documentation, PR review, and CI verification.
+- [x] Complete Parquet documentation, PR review, and CI verification.
 - [ ] Implement reproducible product-store sampling.
 - [ ] Create a unified long-format data representation with real calendar dates.
 - [ ] Incorporate price availability and handle pre-launch sales periods.
@@ -348,7 +348,7 @@ Run Ruff:
 python -m ruff check .
 ```
 
-The current development branch has **81 passing automated tests** in the verified local Python 3.13 environment, including seven tests for Parquet conversion and validation.
+The current development branch has **84 passing automated tests** in the verified local Python 3.13 environment, including seven tests for Parquet conversion and validation.
 
 GitHub Actions runs these checks automatically on pull requests and pushes to `main`.
 

@@ -119,3 +119,42 @@ def test_failed_conversion_preserves_existing_file(
         convert_sales_to_parquet(csv_path, parquet_path)
 
     assert parquet_path.read_bytes() == original_bytes
+
+
+def test_missing_identifier_value_rejected(sample_sales, tmp_path):
+    csv_path, df = sample_sales
+    df.loc[0, "store_id"] = None
+    df.to_csv(csv_path, index=False)
+
+    with pytest.raises(
+        ValueError,
+        match="Identifier columns contain missing values",
+    ):
+        convert_sales_to_parquet(
+            csv_path, tmp_path / "sales.parquet"
+        )
+
+
+def test_unexpected_column_rejected(sample_sales, tmp_path):
+    csv_path, df = sample_sales
+    df["promotion"] = [1, 0]
+    df.to_csv(csv_path, index=False)
+
+    with pytest.raises(ValueError, match="Unexpected columns"):
+        convert_sales_to_parquet(
+            csv_path, tmp_path / "sales.parquet"
+        )
+
+
+def test_missing_sales_value_rejected(sample_sales, tmp_path):
+    csv_path, df = sample_sales
+    df.loc[0, "d_1"] = None
+    df.to_csv(csv_path, index=False)
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid or missing sales values",
+    ):
+        convert_sales_to_parquet(
+            csv_path, tmp_path / "sales.parquet"
+        )
