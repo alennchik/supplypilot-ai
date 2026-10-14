@@ -34,16 +34,12 @@ def convert_sales_to_parquet(
     if missing:
         raise ValueError(f"Missing identifier columns: {missing}")
 
-    day_columns = [
-        col for col in columns
-        if col.startswith("d_") and col[2:].isdigit()
-    ]
+    day_columns = [col for col in columns if col.startswith("d_") and col[2:].isdigit()]
     if not day_columns:
         raise ValueError("No daily sales columns found")
 
     unexpected = [
-        col for col in columns
-        if col not in ID_COLUMNS and col not in day_columns
+        col for col in columns if col not in ID_COLUMNS and col not in day_columns
     ]
     if unexpected:
         raise ValueError(f"Unexpected columns: {unexpected}")
@@ -53,7 +49,14 @@ def convert_sales_to_parquet(
     dtypes = {col: "string" for col in ID_COLUMNS}
     dtypes.update({col: "int32" for col in day_columns})
 
-    df = pd.read_csv(csv_path, dtype=dtypes)
+    try:
+        df = pd.read_csv(csv_path, dtype=dtypes)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Invalid or missing sales values in CSV. "
+            "Daily sales must be non-missing integers "
+            "within the supported range."
+        ) from exc
 
     if df.empty:
         raise ValueError("Sales dataset is empty")
