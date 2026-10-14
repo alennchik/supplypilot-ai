@@ -160,6 +160,97 @@ reports/parquet_benchmark.json
 
 Raw and converted datasets are excluded from Git version control.
 
+## Reproducible M5 Sampling & Unified Daily Data
+
+SupplyPilot AI provides a reproducible data preparation pipeline that transforms Walmart M5 sales, calendar, and pricing data into a standardized daily time-series format for future forecasting models.
+
+### Sampling Strategy
+
+The pipeline selects exactly **3,000 product-store series** from the original 30,490 M5 series.
+
+Sampling is stratified by `store_id × cat_id` across 30 groups, with allocation proportional to group size using the largest-remainder method. Within each group, series are ranked deterministically using SHA-256 and a fixed seed of `42`.
+
+Sampling uses only product and store metadata, not historical sales statistics.
+
+For each of the 10 stores, the sample contains:
+
+| Category | Selected Series |
+|---|---:|
+| FOODS | 141 |
+| HOBBIES | 56 |
+| HOUSEHOLD | 103 |
+| **Total per store** | **300** |
+
+The exact selected IDs are version-controlled in `reports/sample_series.csv`.
+
+### Required Data
+
+Download the Walmart M5 data from [Kaggle](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) and place these files in `data/raw/`:
+
+- `sales_train_validation.csv`
+- `calendar.csv`
+- `sell_prices.csv`
+
+The raw datasets and generated Parquet files are excluded from Git.
+
+### Reproduce the Pipeline
+
+Run these commands from the project root after installing the dependencies:
+
+```bash
+python -m scripts.convert_to_parquet
+python -m scripts.sample_m5
+python -m scripts.build_m5_unified
+```
+
+### Output Files
+
+| File | Description |
+|---|---|
+| `reports/sample_series.csv` | Version-controlled manifest of 3,000 selected series IDs |
+| `data/processed/series.parquet` | Product-store metadata for sampled series |
+| `data/processed/sales.parquet` | Unified daily sales observations |
+
+The metadata file contains:
+
+`series_id`, `item_id`, `dept_id`, `cat_id`, `store_id`, `state_id`
+
+The daily sales file contains:
+
+`series_id`, `date`, `quantity`, `price`, `price_available`
+
+Product-store attributes are kept separate from daily observations to avoid unnecessary duplication.
+
+### Data Preparation Rules
+
+- Original `d_1` through `d_1913` identifiers are mapped to actual calendar dates.
+- Weekly selling prices are joined using `store_id`, `item_id`, and `wm_yr_wk`.
+- Days before the first observed price are excluded for each series.
+- The first observed price is treated as a proxy for the beginning of available history, not a verified product launch date.
+- Observed zero-sales days remain in the dataset.
+- Missing prices after the first observed price are retained as null, with `price_available = False`.
+- Calendar events and SNAP indicators are reserved for later feature engineering.
+
+Price availability indicates whether a price was recorded, not whether inventory was physically available.
+
+### Dataset Validation Results
+
+The pipeline was executed on the sampled Walmart M5 data and produced:
+
+| Metric | Result |
+|---|---:|
+| Sampled series | 3,000 |
+| Daily observations | 4,550,960 |
+| Zero-sales observations | 2,724,948 |
+| Missing prices after trimming | 0 |
+| Average series history | Approximately 1,517 days |
+
+The generated dataset passed local integrity checks for unique series-date pairs, consecutive dates, valid quantities, and consistency between price values and availability indicators.
+
+An independent local reconciliation also confirmed that all **4,550,960 retained sales quantities** match the original M5 sales data.
+
+The pipeline uses batched processing and PyArrow Parquet writing to avoid holding the entire unified dataset in memory at once.
+
 ## Preliminary Forecasting Results (One-Step-Ahead)
 
 The initial forecasting benchmark evaluated aggregate daily sales from a sample of **20 Walmart M5 product-store series** over a 28-day validation period.
@@ -178,7 +269,7 @@ On this initial sample, the naive model achieved lower forecasting errors than t
 - The evaluation uses an aggregate of only 20 product-store series and is not representative of the full M5 dataset.
 - These results should be treated as an initial sanity check, not a final measure of forecasting performance.
 
-The next forecasting milestones will implement reproducible product-store sampling, a unified time-series data format, and fixed-origin 28-day evaluation across multiple rolling-origin backtesting windows.
+The next forecasting milestones will focus on fixed-origin 28-day forecasting baselines, rolling-origin backtesting, and machine learning models.
 
 ## Technology Stack
 
@@ -222,13 +313,13 @@ Additional capabilities, including PostgreSQL integration, a backend API, and an
 - [x] Sales value validation and safe Parquet writes
 - [x] Full-dataset CSV/Parquet integrity verification
 - [x] CSV vs. Parquet performance benchmarking
+- [x] Complete Parquet documentation, PR review, and CI verification
+- [x] Implement reproducible product-store sampling
+- [x] Create a unified long-format data representation with real calendar dates
+- [x] Incorporate price availability and handle pre-price-observation periods
 
 ### Next Milestones
 
-- [x] Complete Parquet documentation, PR review, and CI verification.
-- [ ] Implement reproducible product-store sampling.
-- [ ] Create a unified long-format data representation with real calendar dates.
-- [ ] Incorporate price availability and handle pre-launch sales periods.
 - [ ] Develop fixed-origin 28-day forecasting baselines.
 - [ ] Evaluate forecasts across multiple rolling-origin backtesting windows.
 - [ ] Train and evaluate a LightGBM forecasting model.
@@ -348,7 +439,7 @@ Run Ruff:
 python -m ruff check .
 ```
 
-The current development branch has **84 passing automated tests** in the verified local Python 3.13 environment, including seven tests for Parquet conversion and validation.
+The project has 109 locally passing automated tests in the verified Python 3.13 environment, including 10 tests for Parquet conversion and validation.
 
 GitHub Actions runs these checks automatically on pull requests and pushes to `main`.
 
@@ -362,7 +453,7 @@ SupplyPilot AI currently provides a tested data engineering foundation, prelimin
 
 The immediate development priorities are:
 
-1. **Reliable forecasting evaluation:** Product-store sampling, unified time-series data, fixed-origin 28-day forecasting, and rolling-origin backtesting.
+1. **Reliable forecasting evaluation:** Fixed-origin 28-day forecasting baselines and rolling-origin backtesting using the completed unified M5 dataset.
 2. **Machine learning:** LightGBM forecasting compared against baseline models using consistent evaluation windows.
 3. **Inventory planning:** Forecast-driven replenishment, uncertainty estimation, and simulation of inventory outcomes.
 4. **Application interface:** Interactive analytics and support for uploading user-provided sales data.
