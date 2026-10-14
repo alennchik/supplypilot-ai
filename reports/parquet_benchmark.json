@@ -1,0 +1,128 @@
+{
+  "timestamp_utc": "2026-10-14T20:51:52.739428+00:00",
+  "environment": {
+    "os": "macOS-15.0.1-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "python": "3.13.1",
+    "pandas": "3.0.6",
+    "pyarrow": "26.0.0",
+    "hardware_model": "Mac14,2",
+    "ram_bytes": 8589934592
+  },
+  "repetitions": 3,
+  "methodology": "Independent processes; explicit int16 CSV types; median times; process peak RSS including imports; OS filesystem caches not cleared.",
+  "files": {
+    "csv_bytes": 120007726,
+    "parquet_bytes": 32111541
+  },
+  "summary": {
+    "csv_full": {
+      "median_seconds": 1.8098354996182024,
+      "median_peak_memory_mib": 368.5625,
+      "samples": [
+        {
+          "case": "csv_full",
+          "seconds": 1.8098354996182024,
+          "peak_memory_mib": 368.5625,
+          "rows": 30490,
+          "columns": 1919
+        },
+        {
+          "case": "csv_full",
+          "seconds": 1.8108701249584556,
+          "peak_memory_mib": 361.828125,
+          "rows": 30490,
+          "columns": 1919
+        },
+        {
+          "case": "csv_full",
+          "seconds": 1.7969613340683281,
+          "peak_memory_mib": 374.515625,
+          "rows": 30490,
+          "columns": 1919
+        }
+      ]
+    },
+    "parquet_full": {
+      "median_seconds": 0.10090349987149239,
+      "median_peak_memory_mib": 410.640625,
+      "samples": [
+        {
+          "case": "parquet_full",
+          "seconds": 0.15910812467336655,
+          "peak_memory_mib": 412.75,
+          "rows": 30490,
+          "columns": 1919
+        },
+        {
+          "case": "parquet_full",
+          "seconds": 0.10090349987149239,
+          "peak_memory_mib": 410.640625,
+          "rows": 30490,
+          "columns": 1919
+        },
+        {
+          "case": "parquet_full",
+          "seconds": 0.09468474984169006,
+          "peak_memory_mib": 410.40625,
+          "rows": 30490,
+          "columns": 1919
+        }
+      ]
+    },
+    "csv_recent": {
+      "median_seconds": 0.6660694582387805,
+      "median_peak_memory_mib": 171.640625,
+      "samples": [
+        {
+          "case": "csv_recent",
+          "seconds": 0.6793514168821275,
+          "peak_memory_mib": 165.0625,
+          "rows": 30490,
+          "columns": 371
+        },
+        {
+          "case": "csv_recent",
+          "seconds": 0.6660694582387805,
+          "peak_memory_mib": 171.640625,
+          "rows": 30490,
+          "columns": 371
+        },
+        {
+          "case": "csv_recent",
+          "seconds": 0.661826082970947,
+          "peak_memory_mib": 172.21875,
+          "rows": 30490,
+          "columns": 371
+        }
+      ]
+    },
+    "parquet_recent": {
+      "median_seconds": 0.041261499747633934,
+      "median_peak_memory_mib": 176.359375,
+      "samples": [
+        {
+          "case": "parquet_recent",
+          "seconds": 0.04153054067865014,
+          "peak_memory_mib": 176.265625,
+          "rows": 30490,
+          "columns": 371
+        },
+        {
+          "case": "parquet_recent",
+          "seconds": 0.041261499747633934,
+          "peak_memory_mib": 176.59375,
+          "rows": 30490,
+          "columns": 371
+        },
+        {
+          "case": "parquet_recent",
+          "seconds": 0.041236041113734245,
+          "peak_memory_mib": 176.359375,
+          "rows": 30490,
+          "columns": 371
+        }
+      ]
+    }
+  }
+}
