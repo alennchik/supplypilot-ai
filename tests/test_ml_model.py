@@ -12,6 +12,7 @@ from src.ml_model import (
     OUTPUT_COLUMNS,
     GlobalDemandModel,
     _prepare_features,
+    clipped_mae,
     load_global_model,
     predict_global_model,
     save_global_model,
@@ -249,3 +250,167 @@ def test_negative_raw_predictions_are_clipped_to_zero():
     result = predict_global_model(fake_model, examples)
 
     assert result["prediction"].tolist() == [0.0, 3.25]
+
+
+@pytest.mark.parametrize("objective", ["regression", "poisson", "tweedie"])
+def test_early_stopping_for_all_objectives(objective):
+    """All objectives must select trees using the same V1 MAE metric."""
+    data = make_training_data()
+    origins = sorted(data["origin"].unique())
+
+    training = data.loc[data["origin"].isin(origins[:2])].copy()
+    validation = data.loc[data["origin"] == origins[2]].copy()
+
+    model = train_global_model(
+        training,
+        validation_data=validation,
+        objective=objective,
+        n_estimators=60,
+        early_stopping_rounds=10,
+        n_jobs=2,
+    )
+
+    assert model.best_iteration is not None
+    assert 1 <= model.best_iteration <= 60
+
+    assert model.validation_mae_history is not None
+    assert len(model.validation_mae_history) >= model.best_iteration
+    assert len(model.validation_mae_history) <= 60
+
+    assert np.isfinite(model.validation_mae_history).all()
+    assert np.all(np.array(model.validation_mae_history) >= 0)
+
+    predictions = predict_global_model(model, validation)
+
+    assert len(predictions) == len(validation)
+    assert np.isfinite(predictions["prediction"]).all()
+    assert (predictions["prediction"] >= 0).all()
+
+
+def test_default_training_remains_backward_compatible():
+    """Existing training calls must still work without validation."""
+    model = train_global_model(
+        make_training_data(),
+        n_estimators=20,
+    )
+
+    assert model.best_iteration == 20
+    assert model.validation_mae_history is None
+
+
+def test_invalid_objective_is_rejected():
+    with pytest.raises(ValueError, match="Unsupported LightGBM objective"):
+        train_global_model(
+            make_training_data(),
+            objective="invalid",
+        )
+
+
+def test_validation_requires_target_column():
+    data = make_training_data()
+
+    with pytest.raises(ValueError, match="Validation data must include target"):
+        train_global_model(
+            data,
+            validation_data=data.drop(columns=["target"]),
+            n_estimators=10,
+        )
+
+
+def test_invalid_early_stopping_patience_is_rejected():
+    with pytest.raises(ValueError, match="early_stopping_rounds"):
+        train_global_model(
+            make_training_data(),
+            early_stopping_rounds=0,
+        )
+
+
+def test_early_stopped_model_save_reload(tmp_path):
+    """Reloading must preserve the V1-selected model configuration."""
+    data = make_training_data()
+    origins = sorted(data["origin"].unique())
+
+    training = data.loc[data["origin"].isin(origins[:2])].copy()
+    validation = data.loc[data["origin"] == origins[2]].copy()
+
+    model = train_global_model(
+        training,
+        validation_data=validation,
+        objective="poisson",
+        n_estimators=60,
+        early_stopping_rounds=10,
+        n_jobs=2,
+    )
+
+    predictions_before = predict_global_model(model, validation)
+
+    path = tmp_path / "early_stopped.txt"
+    save_global_model(model, path)
+    loaded = load_global_model(path)
+
+    predictions_after = predict_global_model(loaded, validation)
+
+    assert loaded.objective == "poisson"
+    assert loaded.best_iteration == model.best_iteration
+    assert loaded.validation_mae_history == model.validation_mae_history
+
+    assert loaded.booster.num_trees() == model.best_iteration
+
+    np.testing.assert_allclose(
+        predictions_before["prediction"],
+        predictions_after["prediction"],
+        rtol=0,
+        atol=1e-10,
+    )
+
+
+def test_legacy_model_metadata_still_loads(tmp_path):
+    """Models saved before PR 3 remain readable."""
+    model = train_global_model(
+        make_training_data(),
+        n_estimators=20,
+    )
+
+    path = tmp_path / "legacy_model.txt"
+    save_global_model(model, path)
+
+    metadata_path = path.with_suffix(".json")
+    metadata = json.loads(metadata_path.read_text())
+
+    metadata.pop("objective")
+    metadata.pop("best_iteration")
+    metadata.pop("validation_mae_history")
+
+    metadata_path.write_text(json.dumps(metadata))
+
+    loaded = load_global_model(path)
+
+    assert loaded.objective == "regression"
+    assert loaded.best_iteration is None
+    assert loaded.validation_mae_history is None
+
+    predictions = predict_global_model(
+        loaded,
+        make_training_data().head(28),
+    )
+
+    assert np.isfinite(predictions["prediction"]).all()
+
+
+def test_clipped_mae_matches_inference_behavior():
+    """Early stopping must evaluate nonnegative predictions."""
+    actual = np.array([0.0, 1.0, 3.0])
+    predicted = np.array([-2.0, 2.0, 5.0])
+
+    name, value, higher_is_better = clipped_mae(actual, predicted)
+
+    # After clipping: [0, 2, 5]
+    # Absolute errors: [0, 1, 2]
+    # MAE = (0 + 1 + 2) / 3 = 1
+    assert name == "clipped_mae"
+    assert value == pytest.approx(1.0)
+    assert higher_is_better is False
+
+    # Without clipping, the error would be larger.
+    raw_mae = np.mean(np.abs(actual - predicted))
+    assert raw_mae > value

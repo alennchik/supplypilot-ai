@@ -20,6 +20,9 @@ OUTPUT_COLUMNS = ("series_id", "origin", "date", "horizon")
 class GlobalDemandModel:
     booster: lgb.Booster
     category_levels: dict[str, list[str]]
+    best_iteration: int | None = None
+    validation_mae_history: list[float] | None = None
+    objective: str = "regression"
 
 
 def _prepare_features(
@@ -79,45 +82,144 @@ def _prepare_features(
     return features.loc[:, list(FEATURE_COLUMNS)], learned_levels
 
 
+def clipped_mae(
+    actual: np.ndarray,
+    predicted: np.ndarray,
+) -> tuple[str, float, bool]:
+    """MAE after applying the same nonnegative clipping as inference."""
+    clipped = np.maximum(np.asarray(predicted), 0.0)
+    error = np.mean(np.abs(np.asarray(actual) - clipped))
+
+    return "clipped_mae", float(error), False
+
+
 def train_global_model(
     training_data: pd.DataFrame,
     *,
     n_estimators: int = 100,
     n_jobs: int = 2,
+    objective: str = "regression",
+    validation_data: pd.DataFrame | None = None,
+    early_stopping_rounds: int = 100,
 ) -> GlobalDemandModel:
-    """Fit one regression model across all forecast horizons."""
+    """Fit a global multi-horizon LightGBM demand model.
+
+    When validation_data is supplied, use its MAE for early stopping.
+    The caller is responsible for ensuring chronological train/validation
+    separation.
+    """
+    allowed_objectives = {"regression", "poisson", "tweedie"}
+
+    if objective not in allowed_objectives:
+        raise ValueError(f"Unsupported LightGBM objective: {objective}")
+
+    if (
+        isinstance(n_estimators, bool)
+        or not isinstance(n_estimators, int)
+        or n_estimators < 1
+    ):
+        raise ValueError("n_estimators must be a positive integer")
+
+    if isinstance(n_jobs, bool) or not isinstance(n_jobs, int) or n_jobs < 1:
+        raise ValueError("n_jobs must be a positive integer")
+
+    if (
+        isinstance(early_stopping_rounds, bool)
+        or not isinstance(early_stopping_rounds, int)
+        or early_stopping_rounds < 1
+    ):
+        raise ValueError("early_stopping_rounds must be a positive integer")
+
     if "target" not in training_data.columns:
         raise ValueError("Training data must include target")
 
     features, levels = _prepare_features(training_data)
 
-    target = pd.to_numeric(training_data["target"], errors="raise").to_numpy(
-        dtype=np.float64, na_value=np.nan
-    )
+    target = pd.to_numeric(
+        training_data["target"],
+        errors="raise",
+    ).to_numpy(dtype=np.float64, na_value=np.nan)
 
     if not np.isfinite(target).all() or (target < 0).any():
         raise ValueError("Training targets must be finite and nonnegative")
 
-    regressor = lgb.LGBMRegressor(
-        objective="regression",
-        n_estimators=n_estimators,
-        learning_rate=0.05,
-        num_leaves=31,
-        min_child_samples=20,
-        random_state=42,
-        n_jobs=n_jobs,
-        deterministic=True,
-        force_col_wise=True,
-        verbosity=-1,
-    )
+    params = {
+        "objective": objective,
+        "n_estimators": n_estimators,
+        "learning_rate": 0.05,
+        "num_leaves": 31,
+        "min_child_samples": 20,
+        "random_state": 42,
+        "n_jobs": n_jobs,
+        "deterministic": True,
+        "force_col_wise": True,
+        "verbosity": -1,
+        "metric": "None",
+    }
+
+    if objective == "tweedie":
+        params["tweedie_variance_power"] = 1.5
+
+    regressor = lgb.LGBMRegressor(**params)
+
+    fit_kwargs = {
+        "categorical_feature": list(CATEGORICAL_FEATURES),
+    }
+
+    evaluation_history = {}
+
+    if validation_data is not None:
+        if "target" not in validation_data.columns:
+            raise ValueError("Validation data must include target")
+
+        validation_features, _ = _prepare_features(
+            validation_data,
+            category_levels=levels,
+        )
+
+        validation_target = pd.to_numeric(
+            validation_data["target"],
+            errors="raise",
+        ).to_numpy(dtype=np.float64, na_value=np.nan)
+
+        if not np.isfinite(validation_target).all() or (validation_target < 0).any():
+            raise ValueError("Validation targets must be finite and nonnegative")
+
+        fit_kwargs["eval_X"] = validation_features
+        fit_kwargs["eval_y"] = validation_target
+        fit_kwargs["eval_names"] = ["v1"]
+        fit_kwargs["eval_metric"] = clipped_mae
+        fit_kwargs["callbacks"] = [
+            lgb.early_stopping(
+                stopping_rounds=early_stopping_rounds,
+                first_metric_only=True,
+                verbose=False,
+            ),
+            lgb.record_evaluation(evaluation_history),
+        ]
 
     regressor.fit(
         features,
         target,
-        categorical_feature=list(CATEGORICAL_FEATURES),
+        **fit_kwargs,
     )
 
-    return GlobalDemandModel(regressor.booster_, levels)
+    if validation_data is not None:
+        best_iteration = int(regressor.best_iteration_)
+        mae_history = [
+            float(value) for value in evaluation_history["v1"]["clipped_mae"]
+        ]
+    else:
+        best_iteration = n_estimators
+        mae_history = None
+
+    return GlobalDemandModel(
+        booster=regressor.booster_,
+        category_levels=levels,
+        best_iteration=best_iteration,
+        validation_mae_history=mae_history,
+        objective=objective,
+    )
 
 
 def predict_global_model(
@@ -150,12 +252,18 @@ def save_global_model(model: GlobalDemandModel, path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    model.booster.save_model(str(path))
+    model.booster.save_model(
+        str(path),
+        num_iteration=model.best_iteration,
+    )
 
     metadata = {
         "schema_version": 1,
         "feature_columns": list(FEATURE_COLUMNS),
         "category_levels": model.category_levels,
+        "objective": model.objective,
+        "best_iteration": model.best_iteration,
+        "validation_mae_history": model.validation_mae_history,
     }
 
     path.with_suffix(".json").write_text(
@@ -181,6 +289,9 @@ def load_global_model(path: Path) -> GlobalDemandModel:
         raise ValueError("Incompatible saved ML categorical schema")
 
     return GlobalDemandModel(
-        lgb.Booster(model_file=str(path)),
-        category_levels,
+        booster=lgb.Booster(model_file=str(path)),
+        category_levels=category_levels,
+        best_iteration=metadata.get("best_iteration"),
+        validation_mae_history=metadata.get("validation_mae_history"),
+        objective=metadata.get("objective", "regression"),
     )
