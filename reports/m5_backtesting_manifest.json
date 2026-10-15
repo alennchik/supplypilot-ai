@@ -1,0 +1,42 @@
+{
+  "evaluation_end_date": "2016-04-24",
+  "horizon_days": 28,
+  "window_count": 4,
+  "eligible_series": 2996,
+  "excluded_series": 4,
+  "prediction_rows": 1006656,
+  "models": [
+    "moving_average_28",
+    "naive",
+    "seasonal_naive"
+  ],
+  "demand_lookback_days": 365,
+  "demand_group_method": "fixed_zero_fraction_thresholds",
+  "demand_group_thresholds": {
+    "frequent": "zero_fraction < 0.25",
+    "mixed": "0.25 <= zero_fraction <= 0.75",
+    "sparse": "zero_fraction > 0.75"
+  },
+  "windows": [
+    {
+      "origin": "2016-01-03",
+      "start": "2016-01-04",
+      "end": "2016-01-31"
+    },
+    {
+      "origin": "2016-01-31",
+      "start": "2016-02-01",
+      "end": "2016-02-28"
+    },
+    {
+      "origin": "2016-02-28",
+      "start": "2016-02-29",
+      "end": "2016-03-27"
+    },
+    {
+      "origin": "2016-03-27",
+      "start": "2016-03-28",
+      "end": "2016-04-24"
+    }
+  ]
+}
