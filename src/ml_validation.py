@@ -9,6 +9,7 @@ from src.backtesting import (
     select_eligible_series,
 )
 from src.forecast_baselines import FORECAST_HORIZON
+from src.ml_inference import build_ml_inference_examples
 
 TRAINING_CUTOFF = pd.Timestamp("2015-11-08")
 
@@ -104,3 +105,69 @@ def build_validation_actuals(sales: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Duplicate validation observation keys")
 
     return result
+
+
+def build_validation_feature_sets(
+    sales: pd.DataFrame,
+    metadata: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build V1 and V2 supervised examples for one fixed cohort.
+
+    Historical features come from the corresponding forecast origin.
+    Actual targets are joined only after features have been generated.
+    """
+    actuals = build_validation_actuals(sales)
+
+    v1_series = set(
+        actuals.loc[
+            actuals["origin"] == V1_ORIGIN,
+            "series_id",
+        ]
+    )
+
+    keys = ["series_id", "origin", "date", "horizon"]
+    frames = []
+
+    for window in validation_windows():
+        examples = build_ml_inference_examples(
+            sales=sales,
+            metadata=metadata,
+            origin=window.origin,
+        )
+
+        # Freeze the evaluation population at the V1 origin.
+        examples = examples.loc[examples["series_id"].isin(v1_series)].copy()
+
+        labels = actuals.loc[
+            actuals["origin"] == window.origin,
+            [*keys, "actual"],
+        ].copy()
+
+        joined = examples.merge(
+            labels,
+            on=keys,
+            how="outer",
+            validate="one_to_one",
+            indicator=True,
+        )
+
+        # Never silently drop eligible series or missing targets.
+        if not joined["_merge"].eq("both").all():
+            raise ValueError(
+                f"Validation features and targets do not match "
+                f"at origin {window.origin.date()}"
+            )
+
+        joined = joined.drop(columns="_merge")
+        joined = joined.rename(columns={"actual": "target"})
+
+        expected_rows = len(v1_series) * FORECAST_HORIZON
+
+        if len(joined) != expected_rows:
+            raise ValueError(
+                f"Expected {expected_rows} validation rows, got {len(joined)}"
+            )
+
+        frames.append(joined)
+
+    return frames[0], frames[1]
