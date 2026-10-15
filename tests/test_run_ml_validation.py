@@ -895,6 +895,36 @@ def test_cli_execute_saves_results_without_real_training(tmp_path, monkeypatch, 
     assert horizons["rmse"].eq(4.0).all()
     assert horizons["wape"].eq(40.0).all()
 
+    # Check category and Christmas diagnostic reports.
+    categories_path = output_dir / "ml_validation_categories.csv"
+    holiday_path = output_dir / "ml_validation_holiday_sensitivity.csv"
+
+    assert categories_path.exists()
+    assert holiday_path.exists()
+
+    categories = pd.read_csv(categories_path)
+
+    assert len(categories) == 1
+    assert categories.iloc[0]["cat_id"] == "FOODS"
+    assert categories.iloc[0]["n_rows"] == 28
+    assert categories.iloc[0]["mae"] == pytest.approx(4.0)
+    assert categories.iloc[0]["wape"] == pytest.approx(40.0)
+
+    holidays = pd.read_csv(holiday_path).set_index("subset")
+
+    assert set(holidays.index) == {
+        "all_v2",
+        "excluding_dec_24_26",
+        "dec_24_26_only",
+    }
+
+    assert holidays.loc["all_v2", "n_rows"] == 28
+    assert holidays.loc["excluding_dec_24_26", "n_rows"] == 25
+    assert holidays.loc["dec_24_26_only", "n_rows"] == 3
+
+    assert holidays["mae"].eq(4.0).all()
+    assert holidays["wape"].eq(40.0).all()
+
     manifest = json.loads(selection_path.read_text(encoding="utf-8"))
 
     assert manifest["selected_candidate"]["candidate"] == "regression_8_origins"
@@ -964,3 +994,47 @@ def test_v2_horizon_diagnostics_rejects_missing_horizon():
 
     with pytest.raises(ValueError, match="28 forecast horizons"):
         runner.build_v2_horizon_diagnostics(scored)
+
+
+def test_v2_category_and_holiday_diagnostics():
+    """Check category metrics and Christmas sensitivity."""
+    import pandas as pd
+
+    rows = []
+
+    for series_id, target, prediction in (
+        ("A", 10.0, 8.0),
+        ("B", 20.0, 16.0),
+    ):
+        for horizon in range(1, 29):
+            rows.append(
+                {
+                    "series_id": series_id,
+                    "date": pd.Timestamp("2015-12-06") + pd.Timedelta(days=horizon),
+                    "target": target,
+                    "prediction": prediction,
+                }
+            )
+
+    scored = pd.DataFrame(rows)
+    metadata = pd.DataFrame(
+        {
+            "series_id": ["A", "B"],
+            "cat_id": ["FOODS", "HOBBIES"],
+        }
+    )
+
+    categories, holidays = runner.build_v2_breakdown_diagnostics(scored, metadata)
+
+    assert len(categories) == 2
+    assert categories["n_rows"].eq(28).all()
+    assert categories["wape"].eq(20.0).all()
+
+    by_subset = holidays.set_index("subset")
+
+    assert by_subset.loc["all_v2", "n_rows"] == 56
+    assert by_subset.loc["excluding_dec_24_26", "n_rows"] == 50
+    assert by_subset.loc["dec_24_26_only", "n_rows"] == 6
+
+    assert by_subset["wape"].eq(20.0).all()
+    assert by_subset.loc["all_v2", "mae"] == pytest.approx(3.0)

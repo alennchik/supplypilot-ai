@@ -300,6 +300,10 @@ def save_validation_results(
             "training_origin_counts": list(TRAINING_ORIGIN_COUNTS),
             "objectives": list(OBJECTIVES),
             "max_estimators": MAX_ESTIMATORS,
+            "learning_rate": 0.05,
+            "num_leaves": 31,
+            "random_state": 42,
+            "tweedie_variance_power": 1.5,
             "early_stopping_rounds": EARLY_STOPPING_ROUNDS,
             "n_jobs": N_JOBS,
             "selection_metric": "V2 pooled WAPE",
@@ -371,6 +375,66 @@ def build_v2_horizon_diagnostics(
         )
 
     return pd.DataFrame(results)
+
+
+def build_v2_breakdown_diagnostics(
+    scored: pd.DataFrame,
+    metadata: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Category and Christmas sensitivity diagnostics for selected V2."""
+    required = {"series_id", "date", "target", "prediction"}
+    if scored.empty or not required.issubset(scored.columns):
+        raise ValueError("Missing V2 forecast columns")
+
+    categories = metadata[["series_id", "cat_id"]].copy()
+    if categories["series_id"].duplicated().any():
+        raise ValueError("Duplicate series_id in metadata")
+
+    enriched = scored.merge(
+        categories,
+        on="series_id",
+        how="left",
+        validate="many_to_one",
+    )
+    if enriched["cat_id"].isna().any():
+        raise ValueError("Missing category for V2 series")
+
+    values = enriched[["target", "prediction"]].to_numpy(dtype=np.float64)
+    if not np.isfinite(values).all() or (values < 0).any():
+        raise ValueError("Invalid V2 targets or predictions")
+
+    def metrics(frame: pd.DataFrame) -> dict:
+        actual = frame["target"].to_numpy(dtype=np.float64)
+        predicted = frame["prediction"].to_numpy(dtype=np.float64)
+        errors = actual - predicted
+        return {
+            "n_rows": len(frame),
+            "mae": float(np.mean(np.abs(errors))),
+            "rmse": float(np.sqrt(np.mean(errors**2))),
+            "wape": float(wape(actual, predicted)),
+        }
+
+    category_rows = [
+        {"cat_id": category, **metrics(group)}
+        for category, group in enriched.groupby("cat_id", sort=True)
+    ]
+    category_report = pd.DataFrame(category_rows)
+
+    dates = pd.to_datetime(enriched["date"])
+    christmas = dates.isin(pd.to_datetime(["2015-12-24", "2015-12-25", "2015-12-26"]))
+
+    holiday_rows = []
+    for label, subset in (
+        ("all_v2", enriched),
+        ("excluding_dec_24_26", enriched.loc[~christmas]),
+        ("dec_24_26_only", enriched.loc[christmas]),
+    ):
+        if subset.empty:
+            raise ValueError(f"Empty holiday diagnostic: {label}")
+        holiday_rows.append({"subset": label, **metrics(subset)})
+
+    holiday_report = pd.DataFrame(holiday_rows)
+    return category_report, holiday_report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -477,6 +541,20 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     print(f"Horizon diagnostics saved: {horizons_path}")
+
+    category_report, holiday_report = build_v2_breakdown_diagnostics(
+        selected_forecast,
+        metadata,
+    )
+
+    categories_path = args.output_dir / "ml_validation_categories.csv"
+    holiday_path = args.output_dir / "ml_validation_holiday_sensitivity.csv"
+
+    category_report.to_csv(categories_path, index=False)
+    holiday_report.to_csv(holiday_path, index=False)
+
+    print(f"Category diagnostics saved: {categories_path}")
+    print(f"Holiday diagnostics saved: {holiday_path}")
 
     print(f"Results saved: {results_path}")
     print(f"Selection saved: {selection_path}")
