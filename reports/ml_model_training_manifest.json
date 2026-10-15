@@ -1,0 +1,88 @@
+{
+  "category_levels": {
+    "cat_id": [
+      "FOODS",
+      "HOBBIES",
+      "HOUSEHOLD"
+    ],
+    "dept_id": [
+      "FOODS_1",
+      "FOODS_2",
+      "FOODS_3",
+      "HOBBIES_1",
+      "HOBBIES_2",
+      "HOUSEHOLD_1",
+      "HOUSEHOLD_2"
+    ],
+    "store_id": [
+      "CA_1",
+      "CA_2",
+      "CA_3",
+      "CA_4",
+      "TX_1",
+      "TX_2",
+      "TX_3",
+      "WI_1",
+      "WI_2",
+      "WI_3"
+    ]
+  },
+  "environment": {
+    "lightgbm": "4.7.0",
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "python": "3.13.1",
+    "scikit_learn": "1.9.1"
+  },
+  "feature_columns": [
+    "horizon",
+    "sales_at_origin",
+    "sales_lag_1_at_origin",
+    "sales_lag_7_at_origin",
+    "sales_lag_14_at_origin",
+    "sales_lag_28_at_origin",
+    "rolling_mean_7",
+    "rolling_mean_28",
+    "rolling_mean_56",
+    "rolling_std_7",
+    "rolling_std_28",
+    "zero_fraction_28",
+    "zero_fraction_56",
+    "rolling_sum_7",
+    "rolling_sum_28",
+    "store_id",
+    "dept_id",
+    "cat_id"
+  ],
+  "fit_seconds": 4.96,
+  "forecast_horizon": 28,
+  "model_configuration": {
+    "deterministic": true,
+    "force_col_wise": true,
+    "learning_rate": 0.05,
+    "min_child_samples": 20,
+    "n_estimators": 100,
+    "n_jobs": 2,
+    "num_leaves": 31,
+    "objective": "regression",
+    "random_state": 42
+  },
+  "model_path": "models/global_lightgbm.txt",
+  "model_size_mib": 0.28,
+  "peak_process_rss_mib": 451.7,
+  "smoke_test": "28 direct forecasts, finite and nonnegative; reload matches",
+  "total_seconds": 5.42,
+  "training_cutoff": "2015-11-08",
+  "training_origins": [
+    "2015-08-23",
+    "2015-08-30",
+    "2015-09-06",
+    "2015-09-13",
+    "2015-09-20",
+    "2015-09-27",
+    "2015-10-04",
+    "2015-10-11"
+  ],
+  "training_rows": 668808,
+  "unique_series": 2989
+}

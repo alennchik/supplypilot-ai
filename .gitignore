@@ -225,3 +225,6 @@ data/processed/
 
 # macOS metadata
 .DS_Store
+
+# Trained ML model artifacts
+/models/

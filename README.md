@@ -6,7 +6,7 @@
 
 SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and, in later phases, supporting data-driven inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
 
-**Current status (October 2026):** The Phase 1 data pipeline and 28-day baseline evaluation are complete. Phase 2 now includes leakage-safe historical demand features and a reproducible supervised ML training dataset built from Walmart M5. No LightGBM model has been trained yet; ML forecasting, inventory optimization, and the dashboard remain future work.
+**Current status (October 2026):** The Phase 1 data pipeline and frozen 28-day baseline evaluation are complete. Phase 2 now includes origin-relative demand features, a reproducible supervised ML dataset, and an **initial trained global LightGBM model** for direct 28-day forecasting. Model training, save/reload, and synthetic integration checks work locally. **LightGBM forecast accuracy has not yet been evaluated on validation or final-test windows**; objective/hyperparameter comparisons, inventory optimization, and the dashboard remain future work.
 
 ## Highlights
 
@@ -14,9 +14,10 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - **3,000** reproducibly selected product-store series; **4,550,960** unified daily observations.
 - **2,996** eligible series evaluated over **four 28-day windows**, generating **1,006,656 predictions** across three models.
 - **Best tested baseline:** 28-day moving average, **74.38% pooled WAPE**, versus **86.98%** for seasonal naive and **97.96%** for naive.
-- **194 locally passing automated tests**; Ruff lint checks pass. GitHub Actions CI checks changes on pull requests and on `main`.
+- **216 locally passing automated tests**; Ruff lint checks pass. GitHub Actions CI checks changes on pull requests and on `main`.
 - Wide Parquet storage is **73.2% smaller** than CSV, with **17.94× faster** median full-table loading in the measured local benchmark (not a universal performance guarantee).
-- **668,808 leakage-safe supervised ML rows** generated across eight weekly training origins, 28 forecast horizons, and 2,989 unique eligible series; 2.80 s generation time and 850.81 MiB process peak RSS on the local Mac benchmark.
+- **668,808 cutoff-bounded supervised ML rows** generated across eight weekly training origins, 28 forecast horizons, and 2,989 unique eligible series; 2.80 s generation time and 850.81 MiB process peak RSS on the local Mac benchmark.
+- **Initial LightGBM training completed** on those 668,808 examples: 4.96 s model fitting, 451.70 MiB peak process RSS, and a successful 28-horizon save/reload smoke test on a MacBook Air M2 (8 GB RAM). Forecasting accuracy has not yet been measured.
 
 ## Current Capabilities
 
@@ -45,13 +46,14 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - Evaluate four non-overlapping chronological forecast windows with the same eligible product-store series.
 - Calculate overall, per-window, per-category, and per-demand-sparsity MAE, RMSE, and **pooled WAPE**.
 - Generate reproducible prediction files, CSV reports, and an experiment manifest.
-- Generate reproducible ML training Parquet and a JSON experiment manifest; ML training and evaluation are not yet implemented.
+- Generate reproducible ML training Parquet and a JSON dataset manifest; train a global LightGBM regressor across all 28 forecast horizons, save/load the model and category vocabulary, and record a model-training manifest.
+- Predict nonnegative daily demand from **already-prepared origin-relative feature rows**; end-to-end inference from a new raw sales-history file and out-of-sample ML accuracy assessment are not yet implemented.
 
 ### Quality and Automation
 
 - Pytest unit and integration tests, including future-data leakage, calendar boundaries, missing data, duplicate keys, reproducibility, and failed-write protection.
 - Ruff linting and formatting; pinned dependencies and GitHub Actions CI.
-- Source datasets and large generated Parquet predictions excluded from version control.
+- Source datasets, generated Parquet predictions, and trained model binaries excluded from version control; compact experiment reports can be tracked.
 
 ## Getting Started
 
@@ -65,9 +67,21 @@ cd supplypilot-ai
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+
+### macOS setup for LightGBM
+
+On macOS, LightGBM may require the OpenMP runtime. Install it using Homebrew:
+
+```bash
+brew install libomp
 ```
 
-On Windows, activate the virtual environment with `.venv\Scripts\activate` (Command Prompt) or `.venv\Scripts\Activate.ps1` (PowerShell).
+Then install the Python dependencies as described above. The initial model was trained and tested on a MacBook Air M2 (8 GB RAM) using Python 3.13.1, LightGBM 4.7.0, and scikit-learn 1.9.1.
+
+On Linux or Windows, follow the platform-specific LightGBM installation requirements. Homebrew is not required on those systems.
+
+```
+On macOS with Homebrew, LightGBM may need the OpenMP runtime (`brew install libomp`), as used in the local training run. The training command currently uses the Unix `resource` module to report peak RSS and is **tested on macOS**, not native Windows; use a Unix-like environment for reproducing its resource report.
 
 ### 2. Download the M5 input files
 
@@ -112,14 +126,26 @@ python -m scripts.build_ml_dataset --cutoff 2015-11-08 --origins 8
 
 This generates `data/processed/ml_training.parquet` (ignored by Git) and `reports/ml_training_manifest.json` (version-controlled). No LightGBM dependency is needed to generate the dataset. The fixed cutoff and weekly origins reproduce the documented experiment; run `python -m scripts.build_ml_dataset --help` for optional paths and origin count.
 
-### 6. Run quality checks
+### 6. Train the initial global LightGBM model
+
+After generating `data/processed/ml_training.parquet`, run from the repository root:
+
+```bash
+python -m scripts.train_ml_model
+```
+
+The default run fits one CPU LightGBM regression model (100 boosting rounds, two threads, seed 42) to examples with labels through **2015-11-08**. It writes `models/global_lightgbm.txt` (LightGBM trees), `models/global_lightgbm.json` (training-time categorical vocabulary and feature schema), and `reports/ml_model_training_manifest.json` (configuration, runtime, environment, and training counts). The `models/` directory is excluded from Git; the report is intended to be version-controlled. You can inspect options with `python -m scripts.train_ml_model --help`.
+
+This is a **training and persistence smoke test**, not a validation score. The script checks the training cutoff and reload consistency on one prepared 28-day forecast path. It does not run the later validation or final-test evaluation.
+
+### 7. Run quality checks
 
 ```bash
 python -m ruff check .
 python -m pytest -q
 ```
 
-The documented local run passed **194 tests** with one known Pandas `RuntimeWarning` from a deliberately invalid-value test. A successful local run does not itself mean CI has passed for an unmerged pull request.
+The documented local run passed **216 tests** with one known Pandas `RuntimeWarning` from a deliberately invalid-value test. A successful local run does not itself mean CI has passed for an unmerged pull request.
 
 ## M5 Parquet Storage and Performance
 
@@ -315,9 +341,9 @@ Reports are recomputable from the M5 inputs. The script uses temporary files and
 - Planned Phase 2 tuning windows are **`d_1746`–`d_1773`** and **`d_1774`–`d_1801`**, with origins at `d_1745` and `d_1773`. Determine eligibility using the history available at **each tuning origin**, not at the later final-test origin.
 - Forecast accuracy is not the same as inventory effectiveness; stockout costs, service levels, and lead times have not yet been modeled.
 
-## Phase 2: Leakage-Safe ML Features and Supervised Training Data
+## Phase 2: Leakage-Safe ML Features, Training Data, and Initial LightGBM
 
-This phase prepares training examples for a **future global, direct multi-horizon LightGBM forecasting model**. The dataset generator is implemented and tested; **model training, hyperparameter selection, and final ML evaluation have not yet been run**.
+This phase creates training examples for a **global, direct multi-horizon LightGBM forecasting model**. The dataset generator, initial model-training pipeline, and save/reload tests are implemented. The model has been **trained locally**; **hyperparameter comparison, independent validation, and final ML evaluation have not yet been run**.
 
 ### Feature design
 
@@ -326,14 +352,14 @@ Each example has a unique `(series_id, origin, horizon)` key, where `horizon` ra
 - **Demand lags:** sales at the origin, plus lag 1, 7, 14, and 28 days relative to the origin.
 - **Rolling features:** mean demand over 7, 28, and 56 days; standard deviation over 7 and 28 days; sum over 7 and 28 days; and zero-sales fractions over 28 and 56 days.
 - **Known identifiers:** `store_id`, `dept_id`, and `cat_id`; `item_id` is intentionally excluded from this initial dataset.
-- **Forecast feature:** integer `horizon` (1–28). A future model may use this to learn different forecasts for different days ahead.
+- **Forecast feature:** integer `horizon` (1–28), used by the initial LightGBM model to share parameters across all forecast days.
 - **Missingness:** a missing historical observation is `NaN`, not a zero sale. A series needs 28 consecutive observed days up to its origin; longer features can remain missing if their full lookback is unavailable.
 
 The initial dataset **does not include future sales or future prices**. Calendar/event features and additional categorical features may be considered later, using earlier validation windows only.
 
 ### Training cutoff and leakage protection
 
-For a chosen `training_cutoff`, the generator selects the most recent *N* weekly origins whose entire 28-day target path is observed by that cutoff. It recalculates series eligibility for every origin. Every target must satisfy `date <= training_cutoff`; missing targets for eligible series cause an error rather than silently removing rows.
+For a chosen `training_cutoff`, the generator selects the most recent **N** weekly origins whose entire 28-day target path is observed by that cutoff. It recalculates series eligibility for every origin. Every target must satisfy `date <= training_cutoff`; missing targets for eligible series cause an error rather than silently removing rows.
 
 The **documented initial training experiment** fixes the cutoff at **2015-11-08 (`d_1745`)**, uses **eight weekly origins (2015-08-23 through 2015-10-11)**, and predicts horizons 1–28. This is earlier than the two planned model-tuning target windows and the four previously inspected final-test windows. For future objective and hyperparameter comparisons, use validation origins 2015-11-08 and 2015-12-06, with target periods `d_1746`–`d_1773` and `d_1774`–`d_1801`, respectively; do not tune using final-test errors.
 
@@ -369,7 +395,49 @@ The individual output files use temporary-file replacement; writing the Parquet 
 | Local generation time | **2.80 s** |
 | Peak process RSS | **850.81 MiB** |
 
-Eligible series increase slightly across weekly origins as more history becomes available. This dataset-generation benchmark was measured on a MacBook Air M2 (8 GB RAM) with Python 3.13.1; runtime and process peak RSS vary by environment and **do not predict LightGBM training memory usage**. The 194 passing tests establish current checks, not a guarantee against all forms of leakage or forecasting error.
+Eligible series increase slightly across weekly origins as more history becomes available. This dataset-generation benchmark was measured on a MacBook Air M2 (8 GB RAM) with Python 3.13.1; runtime and process peak RSS vary by environment and **do not predict LightGBM training memory usage**. The 216 passing tests establish current checks, not a guarantee against all forms of leakage or forecasting error.
+
+### Initial global LightGBM model — completed training smoke test
+
+The initial model uses `src/ml_model.py` and `scripts/train_ml_model.py` to fit **one direct multi-horizon LightGBM regressor** on the prepared dataset. Each training row corresponds to a `(series_id, origin, horizon)` example with an observed future target, and all demand features are calculated as of that row's origin.
+
+**Model inputs and leakage boundary:** 14 historical demand features, numeric `horizon` (1–28), and the categorical `store_id`, `dept_id`, and `cat_id` — **18 predictors in total**. Target sales, `series_id`, origin and target dates, and unrelated future columns are **not** included in the model feature matrix. Categorical levels are learned from the training data and stored with the model; unseen categories become missing values. Predictions are clipped to zero if the regression model yields a negative value.
+
+**Initial fixed configuration:** LightGBM `LGBMRegressor` with regression objective, 100 estimators, learning rate `0.05`, 31 leaves, minimum 20 samples per leaf, seed `42`, two CPU threads, `deterministic=True`, and `force_col_wise=True`. These are initial fixed parameters **not selected using final-test errors**. The model uses training labels no later than `2015-11-08` and has not yet been evaluated on held-out target periods.
+
+| Local training result | Value |
+|---|---:|
+| Training cutoff | 2015-11-08 (`d_1745`) |
+| Training rows | **668,808** |
+| Unique training series | **2,989** |
+| Weekly training origins | 8 (2015-08-23 through 2015-10-11) |
+| Forecast horizon | 1–28 days |
+| Model fit time | **4.96 s** |
+| Total training-script execution | **5.42 s** |
+| Peak process RSS | **451.70 MiB** |
+| Saved LightGBM model file | 282 KiB (approximately 0.28 MiB) |
+| Reload smoke test | **PASS** — 28 finite, nonnegative predictions; loaded and in-memory predictions match |
+| Project tests | **216 passed** (1 unrelated existing warning) |
+
+These measurements were obtained locally on a **MacBook Air M2 (8 GB RAM)** with Python 3.13.1, LightGBM 4.7.0, scikit-learn 1.9.1, and Pandas 3.0.6. Fit time excludes Parquet reading and artifact serialization; total time includes those steps. Peak RSS is the measured **process** peak, not the Mac's total system memory use. No claims about universal performance or ML forecast quality follow from these measurements.
+
+**Reproduce the training:**
+
+```bash
+python -m scripts.build_ml_dataset --cutoff 2015-11-08 --origins 8
+python -m scripts.train_ml_model
+```
+
+| Training artifact | Tracked in Git? | Purpose |
+|---|---|---|
+| `data/processed/ml_training.parquet` | No | Origin-relative supervised training examples |
+| `models/global_lightgbm.txt` | No | Serialized fitted LightGBM booster |
+| `models/global_lightgbm.json` | No | Predictor schema and learned category vocabulary |
+| `reports/ml_model_training_manifest.json` | Yes | Model configuration, environment, dataset summary, runtime, memory, and smoke-test result |
+
+The training script validates the `(series_id, origin, horizon)` keys, 28-day paths, target dates, and cutoff; loads the saved model and checks the same complete 28-day prediction path against the in-memory model. Tests cover saved-schema compatibility, invalid targets/horizons, unseen categories, feature inclusion and exclusion, duplicates, incomplete paths, and saved-model reload. The output files are written directly and **are not a multi-file atomic transaction**.
+
+**Not yet implemented:** automated construction of new prediction feature rows from raw unseen sales histories, ML evaluation on earlier validation windows, objective/hyperparameter comparison, and the frozen four-window final ML benchmark. The Phase 1 WAPE numbers above apply **only to the three baseline models**, not LightGBM. For model selection, use the earlier validation periods described above and keep final-test windows out of tuning.
 
 ## Preliminary One-Step-Ahead Forecasting (Legacy Sanity Check)
 
@@ -407,10 +475,11 @@ python -m scripts.evaluate_baselines
 | Parquet storage | PyArrow, Apache Parquet |
 | Visualization | Matplotlib |
 | Configuration | PyYAML |
+| Modeling | LightGBM, scikit-learn |
 | Testing and linting | Pytest, Ruff |
 | Collaboration and automation | Git, GitHub, GitHub Actions |
 
-**Planned:** LightGBM forecasting; replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
+**Planned:** validated and tuned LightGBM forecasting; replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
 
 ## Project Roadmap
 
@@ -432,6 +501,7 @@ python -m scripts.evaluate_baselines
 
 - [x] Implement leakage-safe lag and rolling features for multi-step ML forecasts.
 - [x] Build and validate a supervised 28-day training dataset with weekly origins and a reproducible M5 generation script.
+- [x] Implement and train an initial global LightGBM regression model; verify model persistence and add synthetic integration tests.
 - [ ] Train and compare LightGBM objectives and hyperparameters **using earlier tuning windows only**.
 - [ ] Compare a finalized ML model with the frozen Phase 1 baselines on the same final-test protocol.
 - [ ] Analyze forecast limitations and uncertainty without tuning to test results.
@@ -452,4 +522,4 @@ python -m scripts.evaluate_baselines
 
 The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Later inventory experiments will need explicit, documented assumptions.
 
-This project currently demonstrates **data engineering, reproducible forecasting evaluation, and supervised ML dataset preparation**. No trained ML model or inventory optimizer has been validated. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and evaluated.
+This project currently demonstrates **data engineering, reproducible baseline evaluation, supervised ML dataset preparation, and initial LightGBM training with tested model persistence**. A trained ML model exists, but **its forecasting accuracy and operational usefulness have not yet been validated**; no inventory optimizer has been implemented. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and evaluated.
