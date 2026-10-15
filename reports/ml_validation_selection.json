@@ -1,0 +1,49 @@
+{
+  "protocol": {
+    "training_cutoff": "2015-11-08",
+    "v1_origin": "2015-11-08",
+    "v2_origin": "2015-12-06",
+    "training_origin_counts": [
+      8,
+      16,
+      32
+    ],
+    "objectives": [
+      "regression",
+      "poisson",
+      "tweedie"
+    ],
+    "max_estimators": 2000,
+    "learning_rate": 0.05,
+    "num_leaves": 31,
+    "random_state": 42,
+    "tweedie_variance_power": 1.5,
+    "early_stopping_rounds": 100,
+    "n_jobs": 2,
+    "selection_metric": "V2 pooled WAPE",
+    "wape_tolerance_percentage_points": 1.0,
+    "tie_breaking": [
+      "fewer training origins",
+      "regression before poisson before tweedie"
+    ]
+  },
+  "selected_candidate": {
+    "candidate": "tweedie_8_origins",
+    "objective": "tweedie",
+    "n_origins": 8,
+    "best_iteration": 1944,
+    "v2_wape": 80.86700130410776,
+    "best_observed_v2_wape": 80.83127615027036
+  },
+  "baseline": {
+    "name": "MA28",
+    "v2_wape": 83.41645395641076,
+    "selected_lightgbm_v2_wape": 80.86700130410776,
+    "lightgbm_beats_ma28": true
+  },
+  "resource_usage": {
+    "nine_candidates_wall_seconds": 987.31,
+    "process_cumulative_peak_rss_mib": 1668.14,
+    "rss_note": "One peak for the entire Python process. Not a per-candidate measurement."
+  }
+}

@@ -3,6 +3,8 @@
 import argparse
 import gc
 import json
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +28,22 @@ OBJECTIVES = ("regression", "poisson", "tweedie")
 MAX_ESTIMATORS = 2000
 EARLY_STOPPING_ROUNDS = 100
 N_JOBS = 2
+
+
+def peak_process_rss_mib() -> float | None:
+    """Return this process's cumulative peak RSS, not per-candidate RSS.
+
+    macOS reports ru_maxrss in bytes; Linux uses KiB. This is unavailable
+    on platforms without the resource module (e.g. native Windows).
+    """
+    try:
+        import resource
+    except ImportError:
+        return None
+
+    raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    divisor = 1024**2 if sys.platform == "darwin" else 1024
+    return round(raw / divisor, 2)
 
 
 @dataclass(frozen=True)
@@ -153,6 +171,7 @@ def run_candidate(
     if set(pd.to_datetime(training["origin"])) != expected_origins:
         raise ValueError("Incorrect training origins for candidate")
     # Only V1 targets may influence early stopping.
+    fit_started = time.perf_counter()
     model = train_global_model(
         training,
         objective=candidate.objective,
@@ -161,6 +180,20 @@ def run_candidate(
         n_jobs=N_JOBS,
         validation_data=v1,
     )
+    # Wall time includes feature encoding and the LightGBM fit call.
+    fit_seconds = time.perf_counter() - fit_started
+
+    history = model.validation_mae_history
+    iteration = model.best_iteration
+    if (
+        history is None
+        or not history
+        or iteration is None
+        or not 1 <= iteration <= len(history)
+        or not np.isfinite(np.asarray(history, dtype=np.float64)).all()
+    ):
+        raise ValueError("Incomplete V1 early-stopping history")
+
     # V2 targets are excluded from the prediction input.
     predictions = predict_global_model(
         model,
@@ -177,16 +210,24 @@ def run_candidate(
     if not scored["_merge"].eq("both").all():
         raise ValueError("V2 predictions do not match validation targets")
     scored = scored.drop(columns="_merge")
-    v2_wape = wape(
-        scored["target"].to_numpy(),
-        scored["prediction"].to_numpy(),
-    )
+    actual = scored["target"].to_numpy(dtype=np.float64)
+    predicted = scored["prediction"].to_numpy(dtype=np.float64)
+    errors = actual - predicted
+    v2_wape = wape(actual, predicted)
     result = {
         "candidate": candidate.name,
         "objective": candidate.objective,
         "n_origins": candidate.n_origins,
-        "best_iteration": model.best_iteration,
+        "best_iteration": iteration,
         "v2_wape": v2_wape,
+        "v2_mae": float(np.mean(np.abs(errors))),
+        "v2_rmse": float(np.sqrt(np.mean(errors**2))),
+        "v1_best_mae": float(history[iteration - 1]),
+        "training_rows": len(training),
+        "fit_seconds": round(fit_seconds, 3),
+        # Keep in memory until the curve CSV is written. Never stringify in
+        # the primary nine-row candidate results CSV.
+        "v1_mae_history": list(history),
     }
     return result, scored
 
@@ -227,6 +268,52 @@ def run_all_candidates(
     if len(summary) != 9 or set(summary["candidate"]) != expected_names:
         raise ValueError("Incomplete nine-candidate validation experiment")
     return summary, forecasts
+
+
+def build_v1_learning_curves(summary: pd.DataFrame) -> pd.DataFrame:
+    """Validate and expand each candidate's V1 clipped-MAE history."""
+    needed = {
+        "candidate", "objective", "n_origins", "best_iteration",
+        "v1_best_mae", "v1_mae_history", "v2_wape", "v2_mae",
+        "v2_rmse", "training_rows", "fit_seconds",
+    }
+    missing = needed - set(summary.columns)
+    if missing:
+        raise ValueError(f"Missing validation report fields: {sorted(missing)}")
+
+    # Reuse the exact nine-candidate integrity and finite-WAPE checks.
+    select_best_candidate(summary)
+    numeric = ["v1_best_mae", "v2_mae", "v2_rmse", "training_rows", "fit_seconds"]
+    if not np.isfinite(summary[numeric].to_numpy(dtype=np.float64)).all():
+        raise ValueError("Validation metrics must be finite")
+    if (summary[numeric] < 0).any().any() or (summary["training_rows"] == 0).any():
+        raise ValueError("Invalid negative metrics or empty training dataset")
+
+    rows = []
+    for candidate in summary.itertuples(index=False):
+        history = candidate.v1_mae_history
+        if not isinstance(history, list) or not history:
+            raise ValueError(f"Missing V1 history: {candidate.candidate}")
+        values = np.asarray(history, dtype=np.float64)
+        if not np.isfinite(values).all() or (values < 0).any():
+            raise ValueError(f"Invalid V1 history: {candidate.candidate}")
+        if not 1 <= candidate.best_iteration <= len(history):
+            raise ValueError(f"Invalid best iteration: {candidate.candidate}")
+        if not np.isclose(
+            candidate.v1_best_mae, values[candidate.best_iteration - 1],
+            rtol=0, atol=1e-12,
+        ):
+            raise ValueError(f"V1 best MAE mismatch: {candidate.candidate}")
+        rows.extend(
+            {
+                "candidate": candidate.candidate,
+                "iteration": i,
+                "v1_clipped_mae": float(value),
+                "is_best_iteration": i == candidate.best_iteration,
+            }
+            for i, value in enumerate(values, start=1)
+        )
+    return pd.DataFrame(rows)
 
 
 def select_best_candidate(summary: pd.DataFrame) -> dict:
@@ -285,6 +372,8 @@ def save_validation_results(
     summary: pd.DataFrame,
     output_dir: Path = Path("reports"),
     ma28_wape: float | None = None,
+    experiment_seconds: float | None = None,
+    experiment_peak_rss_mib: float | None = None,
 ) -> tuple[Path, Path]:
     """Persist candidate scores and the preregistered selection."""
     winner = select_best_candidate(summary)
@@ -325,7 +414,19 @@ def save_validation_results(
             "selected_lightgbm_v2_wape": winner["v2_wape"],
             "lightgbm_beats_ma28": winner["v2_wape"] < ma28_wape,
         }
-    summary.to_csv(results_path, index=False)
+    if experiment_seconds is not None:
+        manifest["resource_usage"] = {
+            "nine_candidates_wall_seconds": round(float(experiment_seconds), 2),
+            "process_cumulative_peak_rss_mib": experiment_peak_rss_mib,
+            "rss_note": (
+                "One peak for the entire Python process. "
+                "Not a per-candidate measurement."
+            ),
+        }
+    # The full histories belong in the separate long-format curves CSV.
+    summary.drop(columns=["v1_mae_history"], errors="ignore").to_csv(
+        results_path, index=False
+    )
     selection_path.write_text(
         json.dumps(manifest, indent=2) + "\n",
         encoding="utf-8",
@@ -493,15 +594,28 @@ def main(argv: list[str] | None = None) -> int:
         columns=["series_id", "store_id", "dept_id", "cat_id"],
     )
 
+
     # Exclude the later final-test period from the validation experiment.
     validation_end = V2_ORIGIN + pd.Timedelta(days=FORECAST_HORIZON)
     sales = sales.loc[pd.to_datetime(sales["date"]) <= validation_end].copy()
+
+    # Some series first appear after the validation period.
+    # Retain metadata only for series present in the available sales.
+    metadata = metadata.loc[
+        metadata["series_id"].isin(sales["series_id"])
+    ].copy()
+
 
     if sales.empty or metadata.empty:
         raise ValueError("Sales and metadata cannot be empty")
 
     print("Starting nine sequential LightGBM experiments...")
+    experiment_started = time.perf_counter()
     summary, forecasts = run_all_candidates(sales=sales, metadata=metadata)
+    experiment_seconds = time.perf_counter() - experiment_started
+
+    # Validate full reporting before writing any output files.
+    curves = build_v1_learning_curves(summary)
 
     # Selection uses only the preregistered V2 LightGBM scores.
     winner = select_best_candidate(summary)
@@ -525,7 +639,13 @@ def main(argv: list[str] | None = None) -> int:
         summary=summary,
         output_dir=args.output_dir,
         ma28_wape=ma28_wape,
+        experiment_seconds=experiment_seconds,
+        experiment_peak_rss_mib=peak_process_rss_mib(),
     )
+
+    curves_path = args.output_dir / "ml_validation_curves.csv"
+    curves.to_csv(curves_path, index=False)
+    print(f"V1 learning curves saved: {curves_path}")
 
     # Diagnostics for the selected LightGBM model only.
     # These metrics do not influence model selection.
@@ -555,6 +675,21 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Category diagnostics saved: {categories_path}")
     print(f"Holiday diagnostics saved: {holiday_path}")
+
+    # Identical V2 rows and targets; separate baseline reports retain the
+    # original selected-LightGBM diagnostics schema and test compatibility.
+    ma28_horizons = build_v2_horizon_diagnostics(ma28_scored)
+    ma28_categories, ma28_holidays = build_v2_breakdown_diagnostics(
+        ma28_scored, metadata
+    )
+    for filename, report in (
+        ("ml_validation_ma28_horizons.csv", ma28_horizons),
+        ("ml_validation_ma28_categories.csv", ma28_categories),
+        ("ml_validation_ma28_holiday_sensitivity.csv", ma28_holidays),
+    ):
+        baseline_path = args.output_dir / filename
+        report.to_csv(baseline_path, index=False)
+        print(f"MA28 diagnostics saved: {baseline_path}")
 
     print(f"Results saved: {results_path}")
     print(f"Selection saved: {selection_path}")

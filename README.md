@@ -2,22 +2,24 @@
 
 [![CI](https://github.com/alennchik/supplypilot-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/alennchik/supplypilot-ai/actions/workflows/ci.yml)
 
-**Demand Forecasting & Inventory Planning | In Development**
+**Reproducible Retail Demand Forecasting | Inventory Planning in Development**
 
 SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and, in later phases, supporting data-driven inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
 
-**Current status (October 2026):** The Phase 1 data pipeline and frozen 28-day baseline evaluation are complete. Phase 2 now includes origin-relative demand features, a reproducible supervised ML dataset, and an **initial trained global LightGBM model** for direct 28-day forecasting. Model training, save/reload, and synthetic integration checks work locally. **LightGBM forecast accuracy has not yet been evaluated on validation or final-test windows**; objective/hyperparameter comparisons, inventory optimization, and the dashboard remain future work.
+**Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **preregistered LightGBM validation cycle** are complete. Nine global LightGBM configurations were evaluated on fixed November–December 2015 / December 2015–January 2016 validation windows. The selected **Tweedie / 8-origin** model achieved **80.8670% pooled WAPE**, compared with **83.4165%** for the MA28 baseline **on the same V2 observations**. All nine models' WAPE scores and best boosting iterations were reproduced in a second run. **LightGBM has not yet been evaluated on the later four-window final-test benchmark.** Inventory optimization, end-to-end inference from new raw sales files, and the dashboard remain future work.
 
 ## Highlights
 
 - **58,327,370** original daily sales values verified during wide-format CSV-to-Parquet conversion.
 - **3,000** reproducibly selected product-store series; **4,550,960** unified daily observations.
-- **2,996** eligible series evaluated over **four 28-day windows**, generating **1,006,656 predictions** across three models.
-- **Best tested baseline:** 28-day moving average, **74.38% pooled WAPE**, versus **86.98%** for seasonal naive and **97.96%** for naive.
-- **216 locally passing automated tests**; Ruff lint checks pass. GitHub Actions CI checks changes on pull requests and on `main`.
+- **Phase 1 final-window baseline benchmark:** 2,996 eligible series across four 28-day windows; **1,006,656 total predictions** across three baseline methods. These are **not** the Phase 2 validation windows.
+- **Phase 1 baseline benchmark:** MA28 had **74.38% pooled WAPE** across the four later windows, versus **86.98%** for seasonal naive and **97.96%** for naive; these figures **must not** be compared directly with Phase 2 V2 WAPE.
+- **Phase 2 model selection:** 9 preregistered LightGBM candidates, 2,992 fixed V1/V2 series, and 83,776 V2 forecasts per candidate. Selected Tweedie (8 origins): **80.8670% WAPE**, **0.9832 MAE**, **2.4318 RMSE**; MA28 on those V2 rows: **83.4165% WAPE**.
+- **Reproducibility:** second run matched all nine WAPE scores within `1e-9` and all nine `best_iteration` values exactly; **11,744 V1 learning-curve points** recorded.
+- **279 locally passing automated tests** (one known Pandas warning); Ruff checks pass. GitHub Actions CI checks changes on pull requests and on `main`.
 - Wide Parquet storage is **73.2% smaller** than CSV, with **17.94× faster** median full-table loading in the measured local benchmark (not a universal performance guarantee).
 - **668,808 cutoff-bounded supervised ML rows** generated across eight weekly training origins, 28 forecast horizons, and 2,989 unique eligible series; 2.80 s generation time and 850.81 MiB process peak RSS on the local Mac benchmark.
-- **Initial LightGBM training completed** on those 668,808 examples: 4.96 s model fitting, 451.70 MiB peak process RSS, and a successful 28-horizon save/reload smoke test on a MacBook Air M2 (8 GB RAM). Forecasting accuracy has not yet been measured.
+- **Initial model persistence smoke test:** 4.96 s fitting time for a separate 100-tree regression model, 451.70 MiB peak process RSS, and a successful 28-horizon save/reload test on a MacBook Air M2 (8 GB RAM). This preliminary test is distinct from the nine-candidate validation experiment.
 
 ## Current Capabilities
 
@@ -47,7 +49,8 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - Calculate overall, per-window, per-category, and per-demand-sparsity MAE, RMSE, and **pooled WAPE**.
 - Generate reproducible prediction files, CSV reports, and an experiment manifest.
 - Generate reproducible ML training Parquet and a JSON dataset manifest; train a global LightGBM regressor across all 28 forecast horizons, save/load the model and category vocabulary, and record a model-training manifest.
-- Predict nonnegative daily demand from **already-prepared origin-relative feature rows**; end-to-end inference from a new raw sales-history file and out-of-sample ML accuracy assessment are not yet implemented.
+- Predict nonnegative daily demand from **already-prepared origin-relative feature rows**. Select and evaluate global regression, Poisson, and Tweedie LightGBM models on fixed V1/V2 validation windows using early stopping and pooled WAPE; generate MAE/RMSE, learning curves, resource reports, and MA28 diagnostics.
+- **Not yet implemented:** automated end-to-end inference from a new raw sales-history file or LightGBM scoring on the later four-window final benchmark.
 
 ### Quality and Automation
 
@@ -67,6 +70,7 @@ cd supplypilot-ai
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+```
 
 ### macOS setup for LightGBM
 
@@ -78,10 +82,7 @@ brew install libomp
 
 Then install the Python dependencies as described above. The initial model was trained and tested on a MacBook Air M2 (8 GB RAM) using Python 3.13.1, LightGBM 4.7.0, and scikit-learn 1.9.1.
 
-On Linux or Windows, follow the platform-specific LightGBM installation requirements. Homebrew is not required on those systems.
-
-```
-On macOS with Homebrew, LightGBM may need the OpenMP runtime (`brew install libomp`), as used in the local training run. The training command currently uses the Unix `resource` module to report peak RSS and is **tested on macOS**, not native Windows; use a Unix-like environment for reproducing its resource report.
+On Linux or Windows, follow the platform-specific LightGBM installation requirements; Homebrew is not required. The standalone training entrypoint (`scripts/train_ml_model.py`) uses the Unix `resource` module for process memory reporting and has been tested on macOS, not native Windows. A Unix-like environment is recommended for reproducing that resource report.
 
 ### 2. Download the M5 input files
 
@@ -138,14 +139,32 @@ The default run fits one CPU LightGBM regression model (100 boosting rounds, two
 
 This is a **training and persistence smoke test**, not a validation score. The script checks the training cutoff and reload consistency on one prepared 28-day forecast path. It does not run the later validation or final-test evaluation.
 
-### 7. Run quality checks
+### 7. Reproduce the preregistered LightGBM validation
+
+After preparing `data/processed/sales.parquet` and `data/processed/series.parquet`, first inspect the fixed protocol without training:
+
+```bash
+python -m scripts.run_ml_validation
+```
+
+To **actually train all nine candidates** and write the reports to `reports/`:
+
+```bash
+python -m scripts.run_ml_validation --execute
+```
+
+The command trains regression, Poisson, and Tweedie objectives with 8, 16, and 32 weekly origins. It uses V1 only for early stopping and V2 for the prespecified selection rule. The later four-window final evaluation is not used. See [Phase 2 validation results](#preregistered-v1v2-lightgbm-validation).
+
+**Runtime warning:** this is a full nine-model training experiment (approximately 16 minutes 27 seconds for the documented second run on a MacBook Air M2); it is **not** the separate 100-tree smoke test in step 6.
+
+### 8. Run quality checks
 
 ```bash
 python -m ruff check .
 python -m pytest -q
 ```
 
-The documented local run passed **216 tests** with one known Pandas `RuntimeWarning` from a deliberately invalid-value test. A successful local run does not itself mean CI has passed for an unmerged pull request.
+The documented local run passed **279 tests** with one known Pandas `RuntimeWarning` from a deliberately invalid-value test. A successful local run does not itself mean CI has passed for an unmerged pull request.
 
 ## M5 Parquet Storage and Performance
 
@@ -338,12 +357,12 @@ Reports are recomputable from the M5 inputs. The script uses temporary files and
 - A 28-day average is a simple constant daily forecast; it does not model promotions, holidays, trends, or uncertainty.
 - Demand is often intermittent; around 60% of unified daily rows have zero sales. WAPE above 100% is possible, especially for low-volume groups.
 - We have already inspected results for the four final-evaluation windows. **Do not use them for selecting future LightGBM features, objectives, or hyperparameters.** Future model development must rely on separate, earlier validation windows.
-- Planned Phase 2 tuning windows are **`d_1746`–`d_1773`** and **`d_1774`–`d_1801`**, with origins at `d_1745` and `d_1773`. Determine eligibility using the history available at **each tuning origin**, not at the later final-test origin.
+- Phase 2 **has now used** the earlier validation windows **`d_1746`–`d_1773` (V1)** and **`d_1774`–`d_1801` (V2)**, with origins at `d_1745` and `d_1773`. V1 controls early stopping; V2 selects from the registered candidate grid. The fixed validation cohort is based on the history available at the earlier origin.
 - Forecast accuracy is not the same as inventory effectiveness; stockout costs, service levels, and lead times have not yet been modeled.
 
-## Phase 2: Leakage-Safe ML Features, Training Data, and Initial LightGBM
+## Phase 2: Leakage-Safe Features, Global LightGBM, and Validation
 
-This phase creates training examples for a **global, direct multi-horizon LightGBM forecasting model**. The dataset generator, initial model-training pipeline, and save/reload tests are implemented. The model has been **trained locally**; **hyperparameter comparison, independent validation, and final ML evaluation have not yet been run**.
+This phase creates training examples for a **global, direct multi-horizon LightGBM forecasting model**. The dataset generator, model-training and persistence pipeline, and **nine-candidate preregistered V1/V2 validation experiment** are implemented and tested. The selected model is fixed **for this first validation cycle**; later model improvements must be recorded as separate cycles. **Final ML evaluation on the later four-window benchmark has not been run.**
 
 ### Feature design
 
@@ -355,13 +374,13 @@ Each example has a unique `(series_id, origin, horizon)` key, where `horizon` ra
 - **Forecast feature:** integer `horizon` (1–28), used by the initial LightGBM model to share parameters across all forecast days.
 - **Missingness:** a missing historical observation is `NaN`, not a zero sale. A series needs 28 consecutive observed days up to its origin; longer features can remain missing if their full lookback is unavailable.
 
-The initial dataset **does not include future sales or future prices**. Calendar/event features and additional categorical features may be considered later, using earlier validation windows only.
+The first-cycle ML feature set **does not include future sales or future prices**, calendar/event indicators, SNAP flags, or selling-price features. A separately preregistered second development cycle may examine date-known calendar/event/SNAP features. The first-cycle results remain preserved rather than being overwritten or retroactively retuned.
 
 ### Training cutoff and leakage protection
 
 For a chosen `training_cutoff`, the generator selects the most recent **N** weekly origins whose entire 28-day target path is observed by that cutoff. It recalculates series eligibility for every origin. Every target must satisfy `date <= training_cutoff`; missing targets for eligible series cause an error rather than silently removing rows.
 
-The **documented initial training experiment** fixes the cutoff at **2015-11-08 (`d_1745`)**, uses **eight weekly origins (2015-08-23 through 2015-10-11)**, and predicts horizons 1–28. This is earlier than the two planned model-tuning target windows and the four previously inspected final-test windows. For future objective and hyperparameter comparisons, use validation origins 2015-11-08 and 2015-12-06, with target periods `d_1746`–`d_1773` and `d_1774`–`d_1801`, respectively; do not tune using final-test errors.
+The **documented initial training experiment** fixes the cutoff at **2015-11-08 (`d_1745`)**, uses **eight weekly origins (2015-08-23 through 2015-10-11)**, and predicts horizons 1–28. This precedes the two now-completed model-validation target windows and the four previously inspected baseline final-evaluation windows. The frozen V1/V2 origins are 2015-11-08 and 2015-12-06, with target periods `d_1746`–`d_1773` and `d_1774`–`d_1801`, respectively. **Do not choose ML features or hyperparameters using the later final-evaluation errors.**
 
 ### Reproduce ML training-data generation
 
@@ -395,7 +414,7 @@ The individual output files use temporary-file replacement; writing the Parquet 
 | Local generation time | **2.80 s** |
 | Peak process RSS | **850.81 MiB** |
 
-Eligible series increase slightly across weekly origins as more history becomes available. This dataset-generation benchmark was measured on a MacBook Air M2 (8 GB RAM) with Python 3.13.1; runtime and process peak RSS vary by environment and **do not predict LightGBM training memory usage**. The 216 passing tests establish current checks, not a guarantee against all forms of leakage or forecasting error.
+Eligible series increase slightly across weekly origins as more history becomes available. This dataset-generation benchmark was measured on a MacBook Air M2 (8 GB RAM) with Python 3.13.1; runtime and process peak RSS vary by environment and **do not predict LightGBM training memory usage**. The passing automated tests provide regression checks, not a guarantee against every possible leakage or forecasting error.
 
 ### Initial global LightGBM model — completed training smoke test
 
@@ -403,7 +422,7 @@ The initial model uses `src/ml_model.py` and `scripts/train_ml_model.py` to fit 
 
 **Model inputs and leakage boundary:** 14 historical demand features, numeric `horizon` (1–28), and the categorical `store_id`, `dept_id`, and `cat_id` — **18 predictors in total**. Target sales, `series_id`, origin and target dates, and unrelated future columns are **not** included in the model feature matrix. Categorical levels are learned from the training data and stored with the model; unseen categories become missing values. Predictions are clipped to zero if the regression model yields a negative value.
 
-**Initial fixed configuration:** LightGBM `LGBMRegressor` with regression objective, 100 estimators, learning rate `0.05`, 31 leaves, minimum 20 samples per leaf, seed `42`, two CPU threads, `deterministic=True`, and `force_col_wise=True`. These are initial fixed parameters **not selected using final-test errors**. The model uses training labels no later than `2015-11-08` and has not yet been evaluated on held-out target periods.
+**Initial fixed configuration:** LightGBM `LGBMRegressor` with regression objective, 100 estimators, learning rate `0.05`, 31 leaves, minimum 20 samples per leaf, seed `42`, two CPU threads, `deterministic=True`, and `force_col_wise=True`. These initial fixed parameters **were not selected using final-test errors**. The model uses training labels no later than `2015-11-08`; this 100-tree model was a persistence smoke test rather than one of the nine subsequently validated candidate configurations.
 
 | Local training result | Value |
 |---|---:|
@@ -417,7 +436,7 @@ The initial model uses `src/ml_model.py` and `scripts/train_ml_model.py` to fit 
 | Peak process RSS | **451.70 MiB** |
 | Saved LightGBM model file | 282 KiB (approximately 0.28 MiB) |
 | Reload smoke test | **PASS** — 28 finite, nonnegative predictions; loaded and in-memory predictions match |
-| Project tests | **216 passed** (1 unrelated existing warning) |
+| Project tests at the time of this initial smoke test | **216 passed** (1 unrelated existing warning); **279 passed** after the validation/reporting work |
 
 These measurements were obtained locally on a **MacBook Air M2 (8 GB RAM)** with Python 3.13.1, LightGBM 4.7.0, scikit-learn 1.9.1, and Pandas 3.0.6. Fit time excludes Parquet reading and artifact serialization; total time includes those steps. Peak RSS is the measured **process** peak, not the Mac's total system memory use. No claims about universal performance or ML forecast quality follow from these measurements.
 
@@ -437,7 +456,118 @@ python -m scripts.train_ml_model
 
 The training script validates the `(series_id, origin, horizon)` keys, 28-day paths, target dates, and cutoff; loads the saved model and checks the same complete 28-day prediction path against the in-memory model. Tests cover saved-schema compatibility, invalid targets/horizons, unseen categories, feature inclusion and exclusion, duplicates, incomplete paths, and saved-model reload. The output files are written directly and **are not a multi-file atomic transaction**.
 
-**Not yet implemented:** automated construction of new prediction feature rows from raw unseen sales histories, ML evaluation on earlier validation windows, objective/hyperparameter comparison, and the frozen four-window final ML benchmark. The Phase 1 WAPE numbers above apply **only to the three baseline models**, not LightGBM. For model selection, use the earlier validation periods described above and keep final-test windows out of tuning.
+**Still not implemented:** automated construction of new prediction feature rows from raw unseen sales histories, a second calendar-aware ML development cycle, and the frozen four-window **final ML benchmark**. The Phase 1 four-window WAPE numbers apply **only to the three baseline models**; they are not directly comparable with the separate V2 LightGBM validation results below.
+
+## Preregistered V1/V2 LightGBM Validation
+
+### Experiment objective and chronological design
+
+The first ML development cycle compared **nine fixed LightGBM configurations** for global, **direct** 28-day forecasts of daily sales at the **product-store** level. Its candidate grid, time boundaries, selection metric, and tie-breaking rule were documented in [Issue #24](https://github.com/alennchik/supplypilot-ai/issues/24) **before examining the validation metrics**.
+
+| Component | Fixed protocol |
+|---|---|
+| Training-target cutoff | **2015-11-08** (`d_1745`) |
+| V1 forecast origin | **2015-11-08**; targets Nov 9–Dec 6, 2015 |
+| V2 forecast origin | **2015-12-06**; targets Dec 7, 2015–Jan 3, 2016 |
+| V1 purpose | Early stopping: **clipped MAE** on the 28-day validation path |
+| V2 purpose | Compare candidate configurations by **pooled WAPE**, not train/early-stop trees |
+| Fixed evaluation cohort | **2,992 series**, shared by V1 and V2 |
+| V2 observations | **83,776** product-store-day forecasts per candidate (`2,992 × 28`) |
+| Candidate grid | `regression`, `poisson`, `tweedie` × **8, 16, 32** weekly training origins |
+| Common training parameters | Learning rate **0.05**, **31** leaves, **2,000** maximum estimators, patience **100**, seed **42**, **2 CPU threads** |
+| Other fixed parameters | Minimum **20** samples per leaf; `deterministic=True`; `force_col_wise=True`; Tweedie variance power **1.5** |
+| Selection rule | Lowest V2 WAPE; candidates within **1.0 percentage point** of the best are resolved by **fewer origins**, then `regression` → `poisson` → `tweedie` |
+
+Training sets have between **668,808** and **2,662,072** supervised examples. Every target in model fitting is on or before the training cutoff. V1 is supplied only to the LightGBM evaluation/early-stopping callback; V2 targets are never passed into `fit()`. Evaluation predictions are joined to their expected target keys one-to-one. The cohort and validation dates are checked explicitly.
+
+**Important evaluation boundary:** baseline forecasts on the *later* four-window protocol (January 4–April 24, 2016) had already been inspected during Phase 1. They are retained as frozen context and must **not** inform LightGBM candidate or feature selection. **No LightGBM predictions have been scored on those final windows** in this cycle. Accordingly, V2 performance is a **development/selection result**, not an untouched final-test estimate.
+
+### Results: all nine candidate configurations
+
+All V2 metrics use the same 83,776 target observations. **Lower is better.** `best_iteration` was selected using V1, while WAPE, MAE, and RMSE below were measured on V2.
+
+| Objective | Weekly origins | Training rows | Best iteration | V1 best MAE | V2 MAE | V2 RMSE | V2 WAPE ↓ | Fit time (s) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Regression | 8 | 668,808 | 571 | 1.012247 | 1.031708 | 2.540144 | 84.854124% | 23.818 |
+| Regression | 16 | 1,336,692 | 530 | 1.013330 | 1.024248 | 2.466238 | 84.240515% | 40.705 |
+| Regression | 32 | 2,662,072 | 689 | 1.018359 | 1.009773 | 2.387508 | 83.050008% | 94.001 |
+| Poisson | 8 | 668,808 | 1,360 | 1.000429 | 1.002913 | 2.424288 | 82.485826% | 58.272 |
+| Poisson | 16 | 1,336,692 | 1,922 | 0.995824 | 0.997577 | 2.413772 | 82.046911% | 145.927 |
+| Poisson | 32 | 2,662,072 | 1,219 | 1.003896 | 1.000145 | 2.383859 | 82.258126% | 197.490 |
+| **Tweedie** | **8** | **668,808** | **1,944** | **0.974705** | **0.983231** | **2.431830** | **80.867001%** | **75.487** |
+| Tweedie | 16 | 1,336,692 | 1,518 | 0.977931 | 0.982796 | 2.380685 | **80.831276%** | 116.278 |
+| Tweedie | 32 | 2,662,072 | 1,157 | 0.983925 | 0.984999 | 2.353633 | 81.012440% | 178.782 |
+
+**Selected:** `tweedie_8_origins`, **1,944 boosting iterations**. The raw minimum was `tweedie_16_origins` at **80.831276%**, only **0.035725 percentage points** below the selected model's **80.867001%**. This falls inside the **precommitted 1.0-point tolerance**; the eight-origin candidate wins because it uses fewer training origins. This is not post-hoc tuning to make the result look better. The selected eight-origin fit took **75.487 s**, compared with **116.278 s** for the 16-origin fit in this run; wall time is hardware-dependent.
+
+### Fair comparison with MA28 on V2
+
+The moving-average baseline is recomputed **at the same V2 origin, for precisely the same eligible series and target rows**, rather than borrowing its score from the separate four-window benchmark.
+
+| V2 model | Pooled WAPE ↓ |
+|---|---:|
+| 28-day moving average (MA28) | **83.416454%** |
+| **Selected LightGBM Tweedie (8 origins)** | **80.867001%** |
+| **Absolute improvement** | **2.549453 percentage points** |
+
+This corresponds to approximately **3.06% lower aggregate absolute error relative to MA28** on V2, not a 2.55% increase in prediction accuracy. WAPE is defined as `100 × sum(abs(actual − predicted)) / sum(actual)` over **all product-store-day observations**. It is **not** computed after aggregating all items into one total-sales series, nor is it the mean of per-item WAPE values. The official M5 competition used a different primary metric (WRMSSE), so leaderboards using other metrics or aggregation levels are not directly comparable.
+
+**Do not compare 80.8670% with the 74.38% MA28 value in the earlier section:** that baseline score covers **different dates, four origins, and a slightly different cohort**. Only **83.4165%** is the matched V2 MA28 comparison.
+
+### Diagnostics and limitations
+
+- **Product categories:** the selected Tweedie model's V2 pooled WAPE is approximately **75.28% FOODS**, **85.08% HOUSEHOLD**, and **104.43% HOBBIES**. These are subgroup errors, not separate tuned models.
+- **Christmas sensitivity:** pooled WAPE is **80.8670%** across V2, approximately **77.0158%** excluding December 24–26, and **128.9390%** on those three dates alone. This is a *descriptive diagnostic*, not a different official selection score.
+- **Near-zero denominator:** on **December 25, 2015**, observed total sales across the fixed cohort were just **2 units**. The one-day WAPE therefore becomes extremely large; per-day WAPE should **not** be averaged to obtain the overall score.
+- **Limited exogenous information:** the first-cycle model uses historical demand, `horizon`, and store/department/category identifiers. It **does not yet use** M5 event, calendar, SNAP, or price inputs as predictors; holiday effects and intermittent demand remain difficult to model.
+- **Validation reuse:** future development cycles using the same V2 necessarily introduce some selection bias. Keep all runs and preregister each small change set. Only a final evaluation, following frozen choices, can assess generalization beyond this development window.
+- **Scope:** sampled M5 retail data, not the full 30,490-series population. No claims of deployment-grade forecasts, improved service levels, or inventory cost savings are made.
+
+### Reproducibility and resource usage
+
+The same nine preregistered configurations were trained **twice** on the local MacBook Air M2. Comparing both saved candidate CSVs by exact candidate identifier showed **zero WAPE difference at saved numeric precision across all nine**, and **identical best iterations across all nine**. The automated comparison asserted WAPE tolerance `< 1e-9` and exact iteration equality. The second run recorded **11,744** points of V1 clipped-MAE learning curves; every candidate had the required report fields with **no missing values**.
+
+| Second-run resource | Local result |
+|---|---:|
+| All-nine-candidate wall time | **987.31 s** (~16 min 27 s) |
+| Whole-process cumulative peak RSS | **1,668.14 MiB** |
+| Threads per model | **2** |
+| Local test suite | **279 passed**; **1 known Pandas warning** |
+| Ruff lint | **All checks passed** |
+
+**Memory measurement note:** `ru_maxrss` is cumulative over a Python process, so **1,668.14 MiB is a whole-run process high-water mark**, **not** per-candidate training memory. Fit times are for individual training calls (including feature preparation within the model fit), and will vary across hardware and library versions.
+
+### Reproducing and saving reports
+
+From the project root, with the prepared M5 Parquet inputs and environment:
+
+```bash
+# View the protocol without training.
+python -m scripts.run_ml_validation
+
+# Run all nine candidates. Deliberately expensive; writes fresh reports.
+python -m scripts.run_ml_validation --execute
+```
+
+The default output directory is `reports/`. The validation runner and reporting helpers generate:
+
+| Report | Contents |
+|---|---|
+| `reports/ml_validation_results.csv` | All nine candidates: V1 best MAE, V2 WAPE/MAE/RMSE, best iteration, training rows, and fit seconds |
+| `reports/ml_validation_selection.json` | Registered protocol, selected candidate, matched MA28 WAPE, whole-run time/RSS |
+| `reports/ml_validation_curves.csv` | V1 clipped-MAE history by iteration for all nine candidates |
+| `reports/ml_validation_horizons.csv` | Selected model's 28-horizon error breakdown |
+| `reports/ml_validation_categories.csv` | Selected model's category errors |
+| `reports/ml_validation_holiday_sensitivity.csv` | Selected model's Dec 24–26 diagnostic subsets |
+| `reports/ml_validation_ma28_horizons.csv` | Matched MA28 horizon diagnostics |
+| `reports/ml_validation_ma28_categories.csv` | Matched MA28 category diagnostics |
+| `reports/ml_validation_ma28_holiday_sensitivity.csv` | Matched MA28 holiday diagnostics |
+
+The initial outputs were separately backed up locally under `reports/first_run/`; the expanded second-run reports were created under `reports/repro_run/` and compared against the first-run CSV. These directories document the two-run audit trail. The canonical `reports/ml_validation_*` paths listed above are the intended compact, version-controlled outputs once the verified second-run reports are copied into place; **raw M5 data, models, temporary patch files, and execution logs should not be committed**. The initial result is not erased or retrospectively replaced.
+
+### Next development cycle
+
+A **separate Issue and PR** can preregister a small set of calendar/event/SNAP features, then compare the new cycle on V1/V2 while retaining all first-cycle results. The current winner's **1,944 iterations out of a 2,000-tree cap** may also justify investigating a larger cap in that *separate* cycle, but not changing the first-cycle protocol retroactively. Limit iterations on V2 and treat its results as development-only. When model and evaluation code are frozen, run the four-window final ML assessment **once**, without choosing the model from those errors.
 
 ## Preliminary One-Step-Ahead Forecasting (Legacy Sanity Check)
 
@@ -479,7 +609,7 @@ python -m scripts.evaluate_baselines
 | Testing and linting | Pytest, Ruff |
 | Collaboration and automation | Git, GitHub, GitHub Actions |
 
-**Planned:** validated and tuned LightGBM forecasting; replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
+**Planned:** separately documented calendar-aware ML improvements, final ML evaluation, replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
 
 ## Project Roadmap
 
@@ -502,7 +632,9 @@ python -m scripts.evaluate_baselines
 - [x] Implement leakage-safe lag and rolling features for multi-step ML forecasts.
 - [x] Build and validate a supervised 28-day training dataset with weekly origins and a reproducible M5 generation script.
 - [x] Implement and train an initial global LightGBM regression model; verify model persistence and add synthetic integration tests.
-- [ ] Train and compare LightGBM objectives and hyperparameters **using earlier tuning windows only**.
+- [x] Preregister and run nine LightGBM candidates (three objectives × three training-origin counts) using V1 for early stopping and V2 for selection.
+- [x] Save all-candidate error metrics, V1 learning curves, resource usage, MA28 diagnostics, and reproduce all nine scores and best iterations in a second run.
+- [ ] Design and register a separate calendar-aware improvement cycle without rewriting first-cycle results.
 - [ ] Compare a finalized ML model with the frozen Phase 1 baselines on the same final-test protocol.
 - [ ] Analyze forecast limitations and uncertainty without tuning to test results.
 
@@ -522,4 +654,4 @@ python -m scripts.evaluate_baselines
 
 The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Later inventory experiments will need explicit, documented assumptions.
 
-This project currently demonstrates **data engineering, reproducible baseline evaluation, supervised ML dataset preparation, and initial LightGBM training with tested model persistence**. A trained ML model exists, but **its forecasting accuracy and operational usefulness have not yet been validated**; no inventory optimizer has been implemented. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and evaluated.
+This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, and preregistered V1/V2 model selection with reproduced results**. The selected LightGBM candidate outperformed MA28 **on V2** but has **not** been evaluated on the later frozen four-window final benchmark. Its operational usefulness is not established; no inventory optimizer has been implemented. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and evaluated.

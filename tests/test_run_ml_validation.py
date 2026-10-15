@@ -262,7 +262,10 @@ def test_run_candidate_uses_only_v1_for_early_stopping(monkeypatch):
         assert training_data["date"].max() <= runner.TRAINING_CUTOFF
         assert validation_data["origin"].eq(runner.V1_ORIGIN).all()
 
-        return SimpleNamespace(best_iteration=42)
+        return SimpleNamespace(
+            best_iteration=42,
+            validation_mae_history=[0.5] * 42,
+        )
 
     def fake_predict(model, examples):
         calls.append("predict")
@@ -296,6 +299,9 @@ def test_run_candidate_uses_only_v1_for_early_stopping(monkeypatch):
     assert calls == ["train", "predict"]
     assert result["candidate"] == "regression_8_origins"
     assert result["best_iteration"] == 42
+    assert result["v1_best_mae"] == pytest.approx(0.5)
+    assert result["training_rows"] == len(training)
+    assert result["fit_seconds"] >= 0
 
     expected_wape = 50.0
 
@@ -392,6 +398,12 @@ def make_candidate_summary():
                 "n_origins": candidate.n_origins,
                 "best_iteration": 42,
                 "v2_wape": 70.0,
+                "v2_mae": 1.0,
+                "v2_rmse": 1.5,
+                "v1_best_mae": 0.5,
+                "training_rows": 100,
+                "fit_seconds": 0.1,
+                "v1_mae_history": [0.5] * 42,
             }
             for candidate in runner.candidate_grid()
         ]
@@ -530,7 +542,7 @@ def test_save_validation_results_round_trip(tmp_path):
 
     pd.testing.assert_frame_equal(
         saved_results,
-        summary,
+        summary.drop(columns=["v1_mae_history"]),
         check_dtype=False,
     )
 
@@ -880,6 +892,13 @@ def test_cli_execute_saves_results_without_real_training(tmp_path, monkeypatch, 
     assert results_path.exists()
     assert selection_path.exists()
     assert len(pd.read_csv(results_path)) == 9
+
+    curves_path = output_dir / "ml_validation_curves.csv"
+    assert curves_path.exists()
+    curves = pd.read_csv(curves_path)
+    assert curves["candidate"].nunique() == 9
+    assert len(curves) == 9 * 42
+    assert curves.groupby("candidate")["is_best_iteration"].sum().eq(1).all()
 
     horizons_path = output_dir / "ml_validation_horizons.csv"
 
