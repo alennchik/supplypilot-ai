@@ -1,0 +1,55 @@
+{
+  "elapsed_seconds": 2.8,
+  "eligible_series_by_origin": {
+    "2015-08-23": 2984,
+    "2015-08-30": 2984,
+    "2015-09-06": 2984,
+    "2015-09-13": 2985,
+    "2015-09-20": 2986,
+    "2015-09-27": 2987,
+    "2015-10-04": 2987,
+    "2015-10-11": 2989
+  },
+  "environment": {
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "platform": "macOS-15.0.1-arm64-arm-64bit-Mach-O",
+    "pyarrow": "26.0.0",
+    "python": "3.13.1"
+  },
+  "feature_columns": [
+    "sales_at_origin",
+    "sales_lag_1_at_origin",
+    "sales_lag_7_at_origin",
+    "sales_lag_14_at_origin",
+    "sales_lag_28_at_origin",
+    "rolling_mean_7",
+    "rolling_mean_28",
+    "rolling_mean_56",
+    "rolling_std_7",
+    "rolling_std_28",
+    "zero_fraction_28",
+    "zero_fraction_56",
+    "rolling_sum_7",
+    "rolling_sum_28"
+  ],
+  "forecast_horizon_days": 28,
+  "n_origins": 8,
+  "origins": [
+    "2015-08-23",
+    "2015-08-30",
+    "2015-09-06",
+    "2015-09-13",
+    "2015-09-20",
+    "2015-09-27",
+    "2015-10-04",
+    "2015-10-11"
+  ],
+  "output_file": "data/processed/ml_training.parquet",
+  "output_size_mib": 0.69,
+  "peak_process_rss_mib": 850.81,
+  "rows": 668808,
+  "target_sum": 919505.0,
+  "training_cutoff": "2015-11-08",
+  "unique_series": 2989
+}

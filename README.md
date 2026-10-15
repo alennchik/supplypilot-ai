@@ -6,7 +6,7 @@
 
 SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and, in later phases, supporting data-driven inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
 
-**Current status (October 2026):** Data ingestion, Parquet storage, deterministic sampling, unified daily sales, three direct 28-day forecasting baselines, four-window rolling-origin backtesting, grouped error analysis, and automated tests are implemented. Machine learning models, inventory optimization, and the dashboard are planned; they are not yet implemented.
+**Current status (October 2026):** The Phase 1 data pipeline and 28-day baseline evaluation are complete. Phase 2 now includes leakage-safe historical demand features and a reproducible supervised ML training dataset built from Walmart M5. No LightGBM model has been trained yet; ML forecasting, inventory optimization, and the dashboard remain future work.
 
 ## Highlights
 
@@ -14,8 +14,9 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - **3,000** reproducibly selected product-store series; **4,550,960** unified daily observations.
 - **2,996** eligible series evaluated over **four 28-day windows**, generating **1,006,656 predictions** across three models.
 - **Best tested baseline:** 28-day moving average, **74.38% pooled WAPE**, versus **86.98%** for seasonal naive and **97.96%** for naive.
-- **156 locally passing automated tests**; Ruff lint checks pass. GitHub Actions CI checks changes on pull requests and on `main`.
+- **194 locally passing automated tests**; Ruff lint checks pass. GitHub Actions CI checks changes on pull requests and on `main`.
 - Wide Parquet storage is **73.2% smaller** than CSV, with **17.94× faster** median full-table loading in the measured local benchmark (not a universal performance guarantee).
+- **668,808 leakage-safe supervised ML rows** generated across eight weekly training origins, 28 forecast horizons, and 2,989 unique eligible series; 2.80 s generation time and 850.81 MiB process peak RSS on the local Mac benchmark.
 
 ## Current Capabilities
 
@@ -34,6 +35,8 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - Analyze aggregate sales trends, top-selling products, and zero-sales behavior.
 - Generate lag-1, lag-7, and lag-28 features and historical 7-day/28-day moving averages.
 - Use chronological train/validation splits and avoid current-day target leakage in the earlier one-step feature pipeline.
+- Compute additional origin-relative demand lags (1, 7, 14, 28), historical rolling averages, sums, standard deviations, and zero-sales fractions for direct 28-day ML examples.
+- Build supervised rows with forecast horizons 1–28 and labels strictly at or before a configurable training cutoff; preserve missing-history values as `NaN`.
 
 ### Demand Forecasting and Evaluation
 
@@ -42,6 +45,7 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - Evaluate four non-overlapping chronological forecast windows with the same eligible product-store series.
 - Calculate overall, per-window, per-category, and per-demand-sparsity MAE, RMSE, and **pooled WAPE**.
 - Generate reproducible prediction files, CSV reports, and an experiment manifest.
+- Generate reproducible ML training Parquet and a JSON experiment manifest; ML training and evaluation are not yet implemented.
 
 ### Quality and Automation
 
@@ -63,7 +67,7 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-On Windows, use the appropriate activation script in `.venv\Scripts\`.
+On Windows, activate the virtual environment with `.venv\Scripts\activate` (Command Prompt) or `.venv\Scripts\Activate.ps1` (PowerShell).
 
 ### 2. Download the M5 input files
 
@@ -98,14 +102,24 @@ python -m scripts.run_backtesting
 
 The default M5 experiment ends on **2016-04-24**, and writes a detailed prediction Parquet file to `data/processed/` and summary reports to `reports/`. Use `python -m scripts.run_backtesting --help` for custom input/output paths and evaluation end date. Changing the end date changes the evaluation protocol; use the fixed default to reproduce the published results.
 
-### 5. Run quality checks
+### 5. Build the Phase 2 ML training dataset
+
+After preparing the unified daily data in step 3, run:
+
+```bash
+python -m scripts.build_ml_dataset --cutoff 2015-11-08 --origins 8
+```
+
+This generates `data/processed/ml_training.parquet` (ignored by Git) and `reports/ml_training_manifest.json` (version-controlled). No LightGBM dependency is needed to generate the dataset. The fixed cutoff and weekly origins reproduce the documented experiment; run `python -m scripts.build_ml_dataset --help` for optional paths and origin count.
+
+### 6. Run quality checks
 
 ```bash
 python -m ruff check .
 python -m pytest -q
 ```
 
-The documented local run passed **156 tests** with one known Pandas `RuntimeWarning` from a deliberately invalid-value test. A successful local run does not itself mean CI has passed for an unmerged pull request.
+The documented local run passed **194 tests** with one known Pandas `RuntimeWarning` from a deliberately invalid-value test. A successful local run does not itself mean CI has passed for an unmerged pull request.
 
 ## M5 Parquet Storage and Performance
 
@@ -162,7 +176,7 @@ The full list of chosen IDs is stored in [`reports/sample_series.csv`](reports/s
 | `data/processed/series.parquet` | `series_id`, `item_id`, `dept_id`, `cat_id`, `store_id`, `state_id` |
 | `data/processed/sales.parquet` | `series_id`, `date`, `quantity`, `price`, `price_available` |
 
-The unified pipeline maps M5 `d_1`–`d_1913` columns to real dates and joins weekly observed prices on `store_id`, `item_id`, and `wm_yr_wk`. It removes each series' days *before the first observed price* as a proxy for available history—not as proof of a product launch. Observed zero-sales days are retained. Missing later prices would remain null with `price_available = False`, although **none occurred after trimming in this particular sample**.
+The unified pipeline maps M5 `d_1`–`d_1913` columns to real dates and joins weekly observed prices on `store_id`, `item_id`, and `wm_yr_wk`. It removes each series' days **before the first observed price** as a proxy for available history—not as proof of a product launch. Observed zero-sales days are retained. Missing later prices would remain null with `price_available = False`, although **none occurred after trimming in this particular sample**.
 
 An observed price does not prove inventory availability, so missing prices and stockouts must not be conflated. Baseline forecasts in this phase use **only historical sales quantities**, not future prices or calendar/event features.
 
@@ -214,12 +228,12 @@ Each model has **335,552** evaluated daily predictions (`2,996 × 4 × 28`), for
 
 - **MAE:** mean absolute daily error, in units sold.
 - **RMSE:** root mean squared daily error, in units sold; penalizes larger misses more.
-- **Pooled WAPE:** `100 × sum(abs(actual − predicted)) / sum(actual)` over *all observations in the reported group*. It is **not** an average of per-series WAPE percentages.
+- **Pooled WAPE:** `100 × sum(abs(actual − predicted)) / sum(actual)` over **all observations in the reported group**. It is **not** an average of per-series WAPE percentages.
 - **Undefined WAPE:** if a group's total actual demand is zero, WAPE is reported as missing (`NaN`), not zero.
 
 All three metrics are calculated through the existing implementations in `src/metrics.py` using numerical arrays converted to `float64`.
 
-**WAPE is an error metric, not an accuracy percentage.** Since actual demand is nonnegative, an *always-zero* forecast would have exactly **100% WAPE** when total actual demand is positive. This is a mathematical reference point, **not a separately executed model in the benchmark**.
+**WAPE is an error metric, not an accuracy percentage.** Since actual demand is nonnegative, an **always-zero** forecast would have exactly **100% WAPE** when total actual demand is positive. This is a mathematical reference point, **not a separately executed model in the benchmark**.
 
 ### Overall results
 
@@ -233,7 +247,7 @@ All three metrics are calculated through the existing implementations in `src/me
 
 ### Performance by demand intermittency
 
-Demand groups were defined using each eligible series' proportion of zero-sales days in **at most the 365 days ending at the first forecast origin (`2016-01-03`)**. Series with shorter history use their available observed days (minimum observed: 58). Group definitions were fixed *before looking at forecasting errors*:
+Demand groups were defined using each eligible series' proportion of zero-sales days in **at most the 365 days ending at the first forecast origin (`2016-01-03`)**. Series with shorter history use their available observed days (minimum observed: 58). Group definitions were fixed **before looking at forecasting errors**:
 
 - **Frequent:** fewer than 25% zero-sales days.
 - **Mixed:** 25%–75% zero-sales days, inclusive.
@@ -301,9 +315,65 @@ Reports are recomputable from the M5 inputs. The script uses temporary files and
 - Planned Phase 2 tuning windows are **`d_1746`–`d_1773`** and **`d_1774`–`d_1801`**, with origins at `d_1745` and `d_1773`. Determine eligibility using the history available at **each tuning origin**, not at the later final-test origin.
 - Forecast accuracy is not the same as inventory effectiveness; stockout costs, service levels, and lead times have not yet been modeled.
 
+## Phase 2: Leakage-Safe ML Features and Supervised Training Data
+
+This phase prepares training examples for a **future global, direct multi-horizon LightGBM forecasting model**. The dataset generator is implemented and tested; **model training, hyperparameter selection, and final ML evaluation have not yet been run**.
+
+### Feature design
+
+Each example has a unique `(series_id, origin, horizon)` key, where `horizon` ranges from 1 to 28. `date = origin + horizon`, and `target` is the observed unit sales on that future date. Historical demand features are calculated **as of the forecast origin**, rather than the target date.
+
+- **Demand lags:** sales at the origin, plus lag 1, 7, 14, and 28 days relative to the origin.
+- **Rolling features:** mean demand over 7, 28, and 56 days; standard deviation over 7 and 28 days; sum over 7 and 28 days; and zero-sales fractions over 28 and 56 days.
+- **Known identifiers:** `store_id`, `dept_id`, and `cat_id`; `item_id` is intentionally excluded from this initial dataset.
+- **Forecast feature:** integer `horizon` (1–28). A future model may use this to learn different forecasts for different days ahead.
+- **Missingness:** a missing historical observation is `NaN`, not a zero sale. A series needs 28 consecutive observed days up to its origin; longer features can remain missing if their full lookback is unavailable.
+
+The initial dataset **does not include future sales or future prices**. Calendar/event features and additional categorical features may be considered later, using earlier validation windows only.
+
+### Training cutoff and leakage protection
+
+For a chosen `training_cutoff`, the generator selects the most recent *N* weekly origins whose entire 28-day target path is observed by that cutoff. It recalculates series eligibility for every origin. Every target must satisfy `date <= training_cutoff`; missing targets for eligible series cause an error rather than silently removing rows.
+
+The **documented initial training experiment** fixes the cutoff at **2015-11-08 (`d_1745`)**, uses **eight weekly origins (2015-08-23 through 2015-10-11)**, and predicts horizons 1–28. This is earlier than the two planned model-tuning target windows and the four previously inspected final-test windows. For future objective and hyperparameter comparisons, use validation origins 2015-11-08 and 2015-12-06, with target periods `d_1746`–`d_1773` and `d_1774`–`d_1801`, respectively; do not tune using final-test errors.
+
+### Reproduce ML training-data generation
+
+```bash
+python -m scripts.build_ml_dataset --cutoff 2015-11-08 --origins 8
+```
+
+The generator reads `data/processed/sales.parquet` and `data/processed/series.parquet` created earlier, and saves:
+
+| Output | Tracked in Git? | Contents |
+|---|---|---|
+| `data/processed/ml_training.parquet` | No | 28-day-horizon examples and numeric demand features |
+| `reports/ml_training_manifest.json` | Yes | Cutoff, origin dates, row counts, feature names, generation runtime, environment, and peak process RSS |
+
+The individual output files use temporary-file replacement; writing the Parquet and manifest **is not an atomic transaction across both files**. Tests exercise small synthetic Parquet inputs, so CI does not require the large Walmart M5 source dataset.
+
+### Local Walmart M5 dataset results
+
+| Metric | Result |
+|---|---:|
+| Sampled series available | 3,000 |
+| Training cutoff | 2015-11-08 (`d_1745`) |
+| Weekly training origins | 8 |
+| Forecast horizons per series and origin | 28 |
+| Generated supervised rows | **668,808** |
+| Unique eligible series across all origins | **2,989** |
+| Eligible series per origin | 2,984–2,989 |
+| Missing target values | **0** |
+| Duplicate `(series_id, origin, horizon)` keys | **0** |
+| Targets after training cutoff | **0** |
+| Local generation time | **2.80 s** |
+| Peak process RSS | **850.81 MiB** |
+
+Eligible series increase slightly across weekly origins as more history becomes available. This dataset-generation benchmark was measured on a MacBook Air M2 (8 GB RAM) with Python 3.13.1; runtime and process peak RSS vary by environment and **do not predict LightGBM training memory usage**. The 194 passing tests establish current checks, not a guarantee against all forms of leakage or forecasting error.
+
 ## Preliminary One-Step-Ahead Forecasting (Legacy Sanity Check)
 
-The earlier experiment uses *aggregate* daily sales from 20 M5 product-store series over a 28-day validation period. It is a separate one-step-ahead exercise: actual sales from previous validation dates may be available when predicting later validation dates.
+The earlier experiment uses **aggregate** daily sales from 20 M5 product-store series over a 28-day validation period. It is a separate one-step-ahead exercise: actual sales from previous validation dates may be available when predicting later validation dates.
 
 | Model | MAE | RMSE | WAPE |
 |---|---:|---:|---:|
@@ -349,7 +419,7 @@ python -m scripts.evaluate_baselines
 - [x] Project structure, pinned dependencies, Git workflow, and GitHub Actions CI.
 - [x] Initial M5 validation, exploratory analysis, time-series features, and one-step forecasting sanity checks.
 
-### Implemented locally — Phase 1: Data foundation and forecasting evaluation (PR review pending)
+### Completed — Phase 1: Data foundation and forecasting evaluation
 
 - [x] Wide-format M5 CSV-to-Parquet conversion, verification, and performance benchmarking.
 - [x] Deterministic stratified sampling and unified daily sales/price data.
@@ -358,9 +428,10 @@ python -m scripts.evaluate_baselines
 - [x] Performance breakdowns by window, category, and historically defined demand sparsity.
 - [x] Reproducible full-sample experiment script and version-controlled summary reports.
 
-### Planned — Phase 2: Machine learning
+### In progress — Phase 2: Machine learning
 
-- [ ] Implement leakage-safe lag and rolling features for multi-step ML forecasts.
+- [x] Implement leakage-safe lag and rolling features for multi-step ML forecasts.
+- [x] Build and validate a supervised 28-day training dataset with weekly origins and a reproducible M5 generation script.
 - [ ] Train and compare LightGBM objectives and hyperparameters **using earlier tuning windows only**.
 - [ ] Compare a finalized ML model with the frozen Phase 1 baselines on the same final-test protocol.
 - [ ] Analyze forecast limitations and uncertainty without tuning to test results.
@@ -381,4 +452,4 @@ python -m scripts.evaluate_baselines
 
 The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Later inventory experiments will need explicit, documented assumptions.
 
-This project currently demonstrates **data engineering and forecasting evaluation**. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and validated.
+This project currently demonstrates **data engineering, reproducible forecasting evaluation, and supervised ML dataset preparation**. No trained ML model or inventory optimizer has been validated. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and evaluated.
