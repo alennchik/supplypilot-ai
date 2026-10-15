@@ -67,8 +67,20 @@ cd supplypilot-ai
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+
+### macOS setup for LightGBM
+
+On macOS, LightGBM may require the OpenMP runtime. Install it using Homebrew:
+
+```bash
+brew install libomp
 ```
 
+Then install the Python dependencies as described above. The initial model was trained and tested on a MacBook Air M2 (8 GB RAM) using Python 3.13.1, LightGBM 4.7.0, and scikit-learn 1.9.1.
+
+On Linux or Windows, follow the platform-specific LightGBM installation requirements. Homebrew is not required on those systems.
+
+```
 On macOS with Homebrew, LightGBM may need the OpenMP runtime (`brew install libomp`), as used in the local training run. The training command currently uses the Unix `resource` module to report peak RSS and is **tested on macOS**, not native Windows; use a Unix-like environment for reproducing its resource report.
 
 ### 2. Download the M5 input files
