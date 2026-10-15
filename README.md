@@ -4,460 +4,381 @@
 
 **Demand Forecasting & Inventory Planning | In Development**
 
-SupplyPilot AI is a Python-based supply chain analytics project designed to forecast retail product demand and support data-driven inventory replenishment decisions.
+SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and, in later phases, supporting data-driven inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
 
-The project uses the Walmart M5 Forecasting dataset to develop and evaluate demand forecasting methods. Its long-term goal is to connect reliable forecasts with inventory planning, stockout risk analysis, and actionable replenishment recommendations.
+**Current status (October 2026):** Data ingestion, Parquet storage, deterministic sampling, unified daily sales, three direct 28-day forecasting baselines, four-window rolling-origin backtesting, grouped error analysis, and automated tests are implemented. Machine learning models, inventory optimization, and the dashboard are planned; they are not yet implemented.
 
-**Current status:** Data engineering, exploratory analysis, time-series feature engineering, and preliminary forecasting baselines are implemented. Wide-format Apache Parquet storage, data integrity verification, and performance benchmarking have been implemented. Machine learning models and inventory optimization are planned.
+## Highlights
 
-## Current Features
+- **58,327,370** original daily sales values verified during wide-format CSV-to-Parquet conversion.
+- **3,000** reproducibly selected product-store series; **4,550,960** unified daily observations.
+- **2,996** eligible series evaluated over **four 28-day windows**, generating **1,006,656 predictions** across three models.
+- **Best tested baseline:** 28-day moving average, **74.38% pooled WAPE**, versus **86.98%** for seasonal naive and **97.96%** for naive.
+- **156 locally passing automated tests**; Ruff lint checks pass. GitHub Actions CI checks changes on pull requests and on `main`.
+- Wide Parquet storage is **73.2% smaller** than CSV, with **17.94× faster** median full-table loading in the measured local benchmark (not a universal performance guarantee).
+
+## Current Capabilities
 
 ### Data Engineering
 
-- Load and validate Walmart M5 sales data.
-- Transform wide-format sales data into long-format observations.
-- Process large datasets using memory-efficient, chunk-based ingestion.
-- Support analysis of approximately **58.3 million historical daily sales observations** across 1,913 days.
-- Convert wide-format M5 sales data from CSV to Apache Parquet using PyArrow.
-- Validate sales values before conversion to compact `int16` storage.
-- Preserve the original identifiers, columns, and sales values.
-- Use temporary files and atomic replacement to protect completed Parquet outputs.
-- Verify converted data against the original CSV.
-- Benchmark full-table and selected-column loading performance.
+- Validate M5 identifiers and sales quantities, including null, negative, and integer-range checks.
+- Convert the 30,490-series, 1,913-day wide M5 CSV to Apache Parquet using PyArrow.
+- Process large datasets in batches and use temporary files followed by atomic replacement for individual outputs.
+- Verify converted Parquet values against the original CSV.
+- Deterministically sample 3,000 product-store series using stratification and SHA-256 ranking.
+- Join sales with calendar dates and weekly observed prices to construct a unified daily sales table.
+- Keep product metadata in a separate series table; preserve observed zero sales and distinguish them from missing history.
 
-### Exploratory Data Analysis
+### Exploratory Analysis and Feature Engineering
 
-- Calculate total, average, and maximum sales.
-- Identify top-selling products.
-- Analyze daily sales trends.
-- Identify products with frequent zero-sales observations.
-- Generate sales analytics visualizations.
+- Analyze aggregate sales trends, top-selling products, and zero-sales behavior.
+- Generate lag-1, lag-7, and lag-28 features and historical 7-day/28-day moving averages.
+- Use chronological train/validation splits and avoid current-day target leakage in the earlier one-step feature pipeline.
 
-### Forecasting Preprocessing
+### Demand Forecasting and Evaluation
 
-- Prepare chronological time-series data.
-- Generate lag features for 1, 7, and 28 days.
-- Calculate 7-day and 28-day rolling averages using previous observations.
-- Create chronological training and validation splits.
-- Prevent current-day target leakage in the existing one-step-ahead features.
+- Preserve preliminary one-step-ahead naive and seasonal-naive forecasting checks.
+- Implement **direct 28-day** naive, seasonal naive (7 days), and moving average (28 days) baselines.
+- Evaluate four non-overlapping chronological forecast windows with the same eligible product-store series.
+- Calculate overall, per-window, per-category, and per-demand-sparsity MAE, RMSE, and **pooled WAPE**.
+- Generate reproducible prediction files, CSV reports, and an experiment manifest.
 
-### Baseline Demand Forecasting
+### Quality and Automation
 
-- Implement naive forecasts based on previous-day sales.
-- Implement seasonal naive forecasts based on sales from seven days earlier.
-- Evaluate forecasting performance using **MAE, RMSE, and WAPE**.
-- Compare forecasting baselines on historical validation data.
+- Pytest unit and integration tests, including future-data leakage, calendar boundaries, missing data, duplicate keys, reproducibility, and failed-write protection.
+- Ruff linting and formatting; pinned dependencies and GitHub Actions CI.
+- Source datasets and large generated Parquet predictions excluded from version control.
 
-### Testing and Code Quality
+## Getting Started
 
-- Automated tests using Pytest.
-- Static analysis and linting using Ruff.
-- Reproducible dependency installation with pinned package versions.
-- GitHub Actions CI for automated testing and linting on pull requests and pushes to `main`.
-- Unit tests covering Parquet conversion, data validation, integer overflow, and safe writes.
-- Reproducible performance benchmark scripts and saved measurement results.
+### 1. Clone and install
 
-## Exploratory Data Analysis
-
-### Daily Sales Trends
-
-Historical daily sales patterns from the Walmart M5 dataset.
-
-![Daily Sales Trends](reports/daily_sales.png)
-
-### Top-Selling Products
-
-Visualization of the highest-selling products in the analyzed data.
-
-![Top-Selling Products](reports/top_products.png)
-
-## M5 Parquet Storage & Performance
-
-SupplyPilot AI supports converting the Walmart M5 sales dataset from CSV to wide-format Apache Parquet using Pandas and PyArrow.
-
-The conversion preserves all **30,490 product-store series and 1,919 columns**, including 1,913 daily sales columns.
-
-Sales values are validated before conversion to `int16`. The converter writes to a temporary file before replacing the output, preventing a failed conversion from overwriting an existing valid Parquet file.
-
-The converted dataset is verified against the original CSV to ensure identical identifiers and sales values.
-
-### Run the Conversion
-
-Place `sales_train_validation.csv` in `data/raw/`, then run:
-
-```bash
-python -m scripts.convert_to_parquet
-```
-
-The output is saved to:
-
-```text
-data/processed/sales_train_validation.parquet
-```
-
-Verify that the original CSV and converted Parquet data match:
-
-```bash
-python -m scripts.verify_parquet
-```
-
-Verification performed on the full Walmart M5 sales dataset:
-
-- **Rows verified:** 30,490
-- **Columns verified:** 1,919
-- **Historical sales observations:** 58,327,370
-- **Result:** All identifiers and sales values matched exactly.
-
-### Performance Benchmark
-
-CSV and Parquet loading performance was measured locally on macOS using Python 3.13.1, Pandas 3.0.6, and PyArrow 26.0.0.
-
-Each loading scenario was repeated three times, with results reported as medians.
-
-| Metric | CSV | Parquet | Improvement |
-|---|---:|---:|---:|
-| Full-table loading time | 1.810 s | 0.101 s | **17.94× faster** |
-| IDs + last 365 days loading | 0.666 s | 0.041 s | **16.14× faster** |
-| Full-load peak memory | 368.6 MiB | 410.6 MiB | Higher for Parquet |
-| Recent-load peak memory | 171.6 MiB | 176.4 MiB | Higher for Parquet |
-| File size | ~114 MiB | 30.62 MiB | **73.2% smaller** |
-
-**Key result:** Apache Parquet reduced storage requirements by 73.2% and provided approximately 18× faster full-table loading and 16× faster recent-data loading in the local benchmark.
-
-Parquet did not reduce peak memory consumption in these experiments. Full-table loading used more peak memory than the CSV equivalent.
-
-### Benchmark Methodology
-
-The benchmark evaluates two scenarios:
-
-1. **Full-table loading:** Read all 1,919 columns.
-2. **Recent-history loading:** Read the six identifier columns and the last 365 days of sales data.
-
-For fairer comparisons:
-
-- CSV loading uses explicit column types.
-- Parquet uses PyArrow through Pandas.
-- Each timed load runs in a separate Python process.
-- Each scenario is repeated three times.
-- The benchmark reports median execution time and peak process memory.
-- Peak memory measurements include Python and library overhead.
-- Operating system filesystem caches are not cleared between runs.
-- Scenario execution order is shuffled using a fixed random seed.
-
-The results represent performance on the tested environment and dataset. They are not universal performance guarantees.
-
-To reproduce the benchmark after converting the dataset:
-
-```bash
-python -m scripts.benchmark_parquet --repeats 3
-```
-
-Detailed measurements, individual runs, package versions, and environment information are stored in:
-
-```text
-reports/parquet_benchmark.json
-```
-
-Raw and converted datasets are excluded from Git version control.
-
-## Reproducible M5 Sampling & Unified Daily Data
-
-SupplyPilot AI provides a reproducible data preparation pipeline that transforms Walmart M5 sales, calendar, and pricing data into a standardized daily time-series format for future forecasting models.
-
-### Sampling Strategy
-
-The pipeline selects exactly **3,000 product-store series** from the original 30,490 M5 series.
-
-Sampling is stratified by `store_id × cat_id` across 30 groups, with allocation proportional to group size using the largest-remainder method. Within each group, series are ranked deterministically using SHA-256 and a fixed seed of `42`.
-
-Sampling uses only product and store metadata, not historical sales statistics.
-
-For each of the 10 stores, the sample contains:
-
-| Category | Selected Series |
-|---|---:|
-| FOODS | 141 |
-| HOBBIES | 56 |
-| HOUSEHOLD | 103 |
-| **Total per store** | **300** |
-
-The exact selected IDs are version-controlled in `reports/sample_series.csv`.
-
-### Required Data
-
-Download the Walmart M5 data from [Kaggle](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) and place these files in `data/raw/`:
-
-- `sales_train_validation.csv`
-- `calendar.csv`
-- `sell_prices.csv`
-
-The raw datasets and generated Parquet files are excluded from Git.
-
-### Reproduce the Pipeline
-
-Run these commands from the project root after installing the dependencies:
-
-```bash
-python -m scripts.convert_to_parquet
-python -m scripts.sample_m5
-python -m scripts.build_m5_unified
-```
-
-### Output Files
-
-| File | Description |
-|---|---|
-| `reports/sample_series.csv` | Version-controlled manifest of 3,000 selected series IDs |
-| `data/processed/series.parquet` | Product-store metadata for sampled series |
-| `data/processed/sales.parquet` | Unified daily sales observations |
-
-The metadata file contains:
-
-`series_id`, `item_id`, `dept_id`, `cat_id`, `store_id`, `state_id`
-
-The daily sales file contains:
-
-`series_id`, `date`, `quantity`, `price`, `price_available`
-
-Product-store attributes are kept separate from daily observations to avoid unnecessary duplication.
-
-### Data Preparation Rules
-
-- Original `d_1` through `d_1913` identifiers are mapped to actual calendar dates.
-- Weekly selling prices are joined using `store_id`, `item_id`, and `wm_yr_wk`.
-- Days before the first observed price are excluded for each series.
-- The first observed price is treated as a proxy for the beginning of available history, not a verified product launch date.
-- Observed zero-sales days remain in the dataset.
-- Missing prices after the first observed price are retained as null, with `price_available = False`.
-- Calendar events and SNAP indicators are reserved for later feature engineering.
-
-Price availability indicates whether a price was recorded, not whether inventory was physically available.
-
-### Dataset Validation Results
-
-The pipeline was executed on the sampled Walmart M5 data and produced:
-
-| Metric | Result |
-|---|---:|
-| Sampled series | 3,000 |
-| Daily observations | 4,550,960 |
-| Zero-sales observations | 2,724,948 |
-| Missing prices after trimming | 0 |
-| Average series history | Approximately 1,517 days |
-
-The generated dataset passed local integrity checks for unique series-date pairs, consecutive dates, valid quantities, and consistency between price values and availability indicators.
-
-An independent local reconciliation also confirmed that all **4,550,960 retained sales quantities** match the original M5 sales data.
-
-The pipeline uses batched processing and PyArrow Parquet writing to avoid holding the entire unified dataset in memory at once.
-
-## Preliminary Forecasting Results (One-Step-Ahead)
-
-The initial forecasting benchmark evaluated aggregate daily sales from a sample of **20 Walmart M5 product-store series** over a 28-day validation period.
-
-| Model | MAE | RMSE | WAPE |
-|---|---:|---:|---:|
-| Naive | 16.86 | 20.33 | 43.91% |
-| Seasonal Naive | 19.00 | 23.99 | 49.49% |
-
-On this initial sample, the naive model achieved lower forecasting errors than the seasonal naive model.
-
-**Important limitations:**
-
-- These are preliminary **one-step-ahead** results, not fixed-origin 28-day forecasts.
-- Actual sales from preceding validation days are available when making subsequent predictions.
-- The evaluation uses an aggregate of only 20 product-store series and is not representative of the full M5 dataset.
-- These results should be treated as an initial sanity check, not a final measure of forecasting performance.
-
-The next forecasting milestones will focus on fixed-origin 28-day forecasting baselines, rolling-origin backtesting, and machine learning models.
-
-## Technology Stack
-
-### Currently Used
-
-- **Language:** Python 3.13
-- **Data Processing:** Pandas, NumPy
-- **Data Storage:** Apache Parquet, PyArrow
-- **Visualization:** Matplotlib
-- **Configuration:** PyYAML
-- **Testing:** Pytest
-- **Code Quality:** Ruff
-- **Version Control:** Git, GitHub
-- **Continuous Integration:** GitHub Actions
-
-### Planned
-
-- **Data Analytics:** DuckDB / SQL
-- **Machine Learning:** LightGBM
-- **Inventory Planning:** Replenishment policies, safety stock, simulation
-- **Application Interface:** Streamlit
-- **User Data Support:** CSV import and standardized forecasting inputs
-
-Additional capabilities, including PostgreSQL integration, a backend API, and an LLM-powered assistant, may be explored after the core forecasting and inventory planning system is functional.
-
-## Project Roadmap
-
-### Completed
-
-- [x] Project configuration and development environment
-- [x] Walmart M5 data loading and validation
-- [x] Memory-efficient, chunk-based sales processing
-- [x] Exploratory data analysis and visualizations
-- [x] Time-series feature engineering
-- [x] Chronological training and validation splitting
-- [x] Naive and seasonal naive forecasting
-- [x] Initial MAE, RMSE, and WAPE evaluation
-- [x] Automated unit tests and linting
-- [x] GitHub Actions CI setup
-- [x] M5 wide-format CSV-to-Parquet conversion
-- [x] Sales value validation and safe Parquet writes
-- [x] Full-dataset CSV/Parquet integrity verification
-- [x] CSV vs. Parquet performance benchmarking
-- [x] Complete Parquet documentation, PR review, and CI verification
-- [x] Implement reproducible product-store sampling
-- [x] Create a unified long-format data representation with real calendar dates
-- [x] Incorporate price availability and handle pre-price-observation periods
-
-### Next Milestones
-
-- [ ] Develop fixed-origin 28-day forecasting baselines.
-- [ ] Evaluate forecasts across multiple rolling-origin backtesting windows.
-- [ ] Train and evaluate a LightGBM forecasting model.
-- [ ] Analyze model performance across product categories and demand patterns.
-- [ ] Estimate forecast uncertainty for inventory planning.
-- [ ] Implement inventory replenishment policies and simulation.
-- [ ] Compare replenishment strategies using service-level and inventory metrics.
-- [ ] Build an interactive Streamlit dashboard with user data upload.
-- [ ] Publish reproducible experimental results and project documentation.
-
-## Dataset
-
-SupplyPilot AI uses the **Walmart M5 Forecasting – Accuracy** dataset, containing historical daily retail sales across multiple Walmart stores, product categories, and U.S. states.
-
-**Dataset source:**
-
-https://www.kaggle.com/competitions/m5-forecasting-accuracy/data
-
-Download the dataset from Kaggle and place the following file in the project's `data/raw/` directory:
-
-```text
-data/raw/sales_train_validation.csv
-```
-
-The sales dataset contains:
-
-- 30,490 product-store time series.
-- 1,913 days of historical sales.
-- Approximately 58.3 million daily sales observations.
-- Product, department, category, store, and state identifiers.
-
-Raw datasets and generated Parquet files are excluded from Git version control because of their size.
-
-Future forecasting development will also use `calendar.csv` and `sell_prices.csv` for calendar, event, and pricing features.
-
-The long-term architecture will separate data sources from the forecasting engine, allowing future customer datasets to be transformed into a common internal format.
-
-## Installation and Setup
-
-### 1. Clone the Repository
+Python 3.13 is the tested development environment.
 
 ```bash
 git clone https://github.com/alennchik/supplypilot-ai.git
 cd supplypilot-ai
-```
-
-### 2. Create a Virtual Environment
-
-Python 3.13 is recommended. Verify your installed version:
-
-```bash
-python3 --version
-```
-
-Create and activate the environment:
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-On Windows, activate using the appropriate script from `.venv\Scripts\`.
-
-### 3. Install Dependencies
-
-```bash
 python -m pip install -r requirements.txt
 ```
 
-### 4. Download the Dataset
+On Windows, use the appropriate activation script in `.venv\Scripts\`.
 
-Download `sales_train_validation.csv` from the Kaggle dataset link above and place it in:
+### 2. Download the M5 input files
+
+Download the data from the [M5 Forecasting – Accuracy competition](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) and place the following files in `data/raw/`:
 
 ```text
 data/raw/sales_train_validation.csv
+data/raw/calendar.csv
+data/raw/sell_prices.csv
 ```
 
-### 5. Convert Sales Data to Parquet
+The repo does **not** bundle the source data. Raw and processed datasets are ignored by Git.
+
+### 3. Build the datasets
+
+Run from the repository root:
 
 ```bash
 python -m scripts.convert_to_parquet
+python -m scripts.verify_parquet
+python -m scripts.sample_m5
+python -m scripts.build_m5_unified
 ```
 
-This creates the optimized wide-format Parquet file in `data/processed/`.
+This produces `data/processed/sales_train_validation.parquet`, `series.parquet`, and `sales.parquet` (among other intermediate files). The fixed sampled series IDs are tracked in `reports/sample_series.csv`; the sampling script checks against this manifest to detect accidental sample changes.
 
-Verify data integrity:
+### 4. Run the 28-day forecasting benchmark
 
 ```bash
-python -m scripts.verify_parquet
+python -m scripts.run_backtesting
 ```
 
-Optionally reproduce the storage performance benchmark:
+The default M5 experiment ends on **2016-04-24**, and writes a detailed prediction Parquet file to `data/processed/` and summary reports to `reports/`. Use `python -m scripts.run_backtesting --help` for custom input/output paths and evaluation end date. Changing the end date changes the evaluation protocol; use the fixed default to reproduce the published results.
+
+### 5. Run quality checks
+
+```bash
+python -m ruff check .
+python -m pytest -q
+```
+
+The documented local run passed **156 tests** with one known Pandas `RuntimeWarning` from a deliberately invalid-value test. A successful local run does not itself mean CI has passed for an unmerged pull request.
+
+## M5 Parquet Storage and Performance
+
+The wide-format converter preserves **30,490 product-store series**, **1,919 columns** (six identifiers plus 1,913 daily values), and **58,327,370** historical sales observations. It validates quantities before storing them in a compact integer format and uses temporary-file replacement to protect a valid output from unsuccessful conversion.
+
+Verification on the full source dataset found matching identifiers and sales values in the original CSV and converted Parquet output.
+
+### Local performance benchmark
+
+Measured on macOS with Python 3.13.1, Pandas 3.0.6, and PyArrow 26.0.0. Three runs per loading scenario; values shown are medians.
+
+| Metric | CSV | Parquet | Result |
+|---|---:|---:|---|
+| Full-table loading | 1.810 s | 0.101 s | **17.94× faster** |
+| IDs plus last 365 days | 0.666 s | 0.041 s | **16.14× faster** |
+| Full-load peak memory | 368.6 MiB | 410.6 MiB | Higher with Parquet |
+| Recent-load peak memory | 171.6 MiB | 176.4 MiB | Higher with Parquet |
+| File size | ~114 MiB | 30.62 MiB | **73.2% smaller** |
+
+The timing scenarios load either all 1,919 columns or the six identifier columns plus the last 365 sales days. CSV uses explicit data types; Parquet is read through Pandas/PyArrow. Each timed load runs in a separate process; execution order is randomized with a fixed seed. Operating-system filesystem caches were not cleared. Peak memory includes Python and library overhead.
+
+Parquet improved disk usage and load time **but did not reduce measured peak memory**. These results describe this environment, dataset, and benchmark, not guaranteed speedups elsewhere.
+
+Reproduce the benchmark with:
 
 ```bash
 python -m scripts.benchmark_parquet --repeats 3
 ```
 
-### 6. Run the Baseline Evaluation
+Detailed runs and environment information are in [`reports/parquet_benchmark.json`](reports/parquet_benchmark.json).
+
+## Reproducible M5 Sampling and Unified Daily Data
+
+### Sampling methodology
+
+Exactly **3,000 of 30,490** product-store series were selected using metadata alone, without inspecting demand values. The algorithm allocates sample sizes proportionally across the **30 `store_id × cat_id` strata** by the largest-remainder method, breaking ties deterministically, then ranks series using SHA-256 with seed `42`.
+
+For each of ten stores, the selected sample contains:
+
+| Category | Series per store |
+|---|---:|
+| FOODS | 141 |
+| HOBBIES | 56 |
+| HOUSEHOLD | 103 |
+| **Total** | **300** |
+
+The full list of chosen IDs is stored in [`reports/sample_series.csv`](reports/sample_series.csv) for reproducibility.
+
+### Output schema
+
+| File | Contents |
+|---|---|
+| `data/processed/sales_train_validation.parquet` | Verified original wide-format M5 sales |
+| `data/processed/series.parquet` | `series_id`, `item_id`, `dept_id`, `cat_id`, `store_id`, `state_id` |
+| `data/processed/sales.parquet` | `series_id`, `date`, `quantity`, `price`, `price_available` |
+
+The unified pipeline maps M5 `d_1`–`d_1913` columns to real dates and joins weekly observed prices on `store_id`, `item_id`, and `wm_yr_wk`. It removes each series' days *before the first observed price* as a proxy for available history—not as proof of a product launch. Observed zero-sales days are retained. Missing later prices would remain null with `price_available = False`, although **none occurred after trimming in this particular sample**.
+
+An observed price does not prove inventory availability, so missing prices and stockouts must not be conflated. Baseline forecasts in this phase use **only historical sales quantities**, not future prices or calendar/event features.
+
+### Local data validation
+
+| Metric | Result |
+|---|---:|
+| Selected product-store series | 3,000 |
+| Unified daily rows | 4,550,960 |
+| Zero-sales rows | 2,724,948 (about 60%) |
+| Missing prices after trimming | 0 |
+| Average available history | Approximately 1,517 days per series |
+
+Checks covered unique series/date pairs, consecutive dates within each series, valid quantities, and price-availability consistency. Independently comparing all **4,550,960 retained daily quantities** to the original M5 wide table found no mismatches.
+
+## Direct 28-Day Forecasting and Rolling-Origin Backtesting
+
+The primary benchmark evaluates **28-day-ahead paths predicted at a fixed origin**, not one-step forecasts that can use actual sales from earlier days inside the test period.
+
+### Baseline models
+
+| Model | Prediction for the next 28 days |
+|---|---|
+| **Naive** | Repeat the last observed daily quantity for every forecast day |
+| **Seasonal naive (7)** | Repeat the last seven observed daily quantities four times |
+| **Moving average (28)** | Repeat the average daily quantity from the previous 28 observed days |
+
+These models are implemented in `src/forecast_baselines.py`. Earlier one-step baselines remain in `src/baselines.py` as separate preliminary checks.
+
+### Evaluation protocol
+
+- **Dataset:** 3,000 sampled Walmart M5 product-store series; daily dates through **2016-04-24**.
+- **Horizon:** 28 calendar days per origin, with **four non-overlapping final-evaluation windows**.
+- **Eligibility:** at least 28 consecutive observed historical days at the **first** evaluation origin (`2016-01-03`); **2,996 eligible**, **4 excluded**. This cohort stays fixed for all models and windows.
+- **No leakage:** each forecast receives only historical demand available through its origin. Earlier completed windows become historical data at later origins; future actual sales never enter the same origin's forecast inputs.
+- **Missingness:** absence of an observation is `NaN`, not zero. Missing target observations for an already eligible series raise an error instead of silently removing the series.
+- **Comparison:** all three models use identical eligible series, dates, forecast origins, and actual quantities.
+
+| Window | Forecast origin | 28-day prediction period |
+|---|---|---|
+| 1 | 2016-01-03 | 2016-01-04 to 2016-01-31 |
+| 2 | 2016-01-31 | 2016-02-01 to 2016-02-28 |
+| 3 | 2016-02-28 | 2016-02-29 to 2016-03-27 |
+| 4 | 2016-03-27 | 2016-03-28 to 2016-04-24 |
+
+Each model has **335,552** evaluated daily predictions (`2,996 × 4 × 28`), for **1,006,656 total prediction rows**. The combined actual demand over those 335,552 target observations is **482,952 units** (the same target set for every model).
+
+### Error metrics
+
+- **MAE:** mean absolute daily error, in units sold.
+- **RMSE:** root mean squared daily error, in units sold; penalizes larger misses more.
+- **Pooled WAPE:** `100 × sum(abs(actual − predicted)) / sum(actual)` over *all observations in the reported group*. It is **not** an average of per-series WAPE percentages.
+- **Undefined WAPE:** if a group's total actual demand is zero, WAPE is reported as missing (`NaN`), not zero.
+
+All three metrics are calculated through the existing implementations in `src/metrics.py` using numerical arrays converted to `float64`.
+
+**WAPE is an error metric, not an accuracy percentage.** Since actual demand is nonnegative, an *always-zero* forecast would have exactly **100% WAPE** when total actual demand is positive. This is a mathematical reference point, **not a separately executed model in the benchmark**.
+
+### Overall results
+
+| Model | MAE ↓ | RMSE ↓ | Pooled WAPE ↓ |
+|---|---:|---:|---:|
+| **Moving average (28)** | **1.071** | **2.600** | **74.38%** |
+| Seasonal naive (7) | 1.252 | 3.096 | 86.98% |
+| Naive | 1.410 | 3.499 | 97.96% |
+
+**Finding:** the 28-day moving average has the lowest MAE, RMSE, and pooled WAPE of the three tested baselines on this fixed M5 evaluation. Its pooled WAPE is **23.58 percentage points lower than naive**, a **24.1% relative reduction in aggregate absolute error**. This is a baseline benchmark, not evidence of production-ready forecast quality.
+
+### Performance by demand intermittency
+
+Demand groups were defined using each eligible series' proportion of zero-sales days in **at most the 365 days ending at the first forecast origin (`2016-01-03`)**. Series with shorter history use their available observed days (minimum observed: 58). Group definitions were fixed *before looking at forecasting errors*:
+
+- **Frequent:** fewer than 25% zero-sales days.
+- **Mixed:** 25%–75% zero-sales days, inclusive.
+- **Sparse:** more than 75% zero-sales days.
+
+| Demand group | Series | MA28 WAPE ↓ | Seasonal naive WAPE ↓ | Naive WAPE ↓ |
+|---|---:|---:|---:|---:|
+| Frequent | 334 (11.15%) | **51.92%** | 63.32% | 74.31% |
+| Mixed | 1,584 (52.87%) | **88.48%** | 103.22% | 114.31% |
+| Sparse | 1,078 (35.98%) | **115.25%** | 122.81% | 133.10% |
+
+**Finding:** the moving average wins in all three demand groups, but even its error exceeds the always-zero **100% WAPE reference** for sparse demand. Forecasting rarely sold items remains a significant problem. That observation does **not** justify tuning a model or choosing a special strategy using these final-test results.
+
+Frequent series make up only **11.15% of series** but account for approximately **45.04% of target demand** in this evaluation. Sparse series account for **35.98% of series** but only about **8.84% of target demand**. This helps explain why overall pooled WAPE is closer to the errors of higher-volume groups.
+
+### Performance by category
+
+| Category | Series | MA28 WAPE ↓ | Seasonal naive WAPE ↓ | Naive WAPE ↓ |
+|---|---:|---:|---:|---:|
+| FOODS | 1,406 | **68.32%** | 79.64% | 90.13% |
+| HOUSEHOLD | 1,030 | **80.25%** | 95.25% | 105.78% |
+| HOBBIES | 560 | **102.84%** | 118.74% | 134.17% |
+
+The moving average is best among the tested methods in all three categories. HOBBIES has the highest relative error; these tables alone do not establish why.
+
+### Stability across test windows
+
+| Prediction period | MA28 WAPE ↓ | Seasonal naive WAPE ↓ | Naive WAPE ↓ |
+|---|---:|---:|---:|
+| Jan 4–31, 2016 | **79.04%** | 92.89% | 100.59% |
+| Feb 1–28, 2016 | **72.28%** | 83.88% | 97.79% |
+| Feb 29–Mar 27, 2016 | **73.64%** | 85.12% | 95.54% |
+| Mar 28–Apr 24, 2016 | **72.96%** | 86.58% | 98.18% |
+
+The ranking is consistent across all four windows. The first window has the highest MA28 WAPE; its lower total actual demand also contributes to the larger relative error. Causes such as holidays have **not** been established by this analysis.
+
+### Reproduce the forecasting benchmark
+
+After completing the data preparation steps, run:
+
+```bash
+python -m scripts.run_backtesting
+```
+
+The script loads `sales.parquet` and `series.parquet`, generates the direct 28-day predictions, creates historical demand groups, evaluates all models using existing metrics, and saves:
+
+| Output | Version-controlled? | Purpose |
+|---|---|---|
+| `data/processed/m5_backtest_predictions.parquet` | No | Detailed actual and predicted demand by series, origin, date, and model |
+| `reports/m5_baselines_overall.csv` | Yes | Overall model metrics |
+| `reports/m5_baselines_by_window.csv` | Yes | Metrics per forecast origin |
+| `reports/m5_baselines_by_category.csv` | Yes | Metrics by product category |
+| `reports/m5_baselines_by_sparsity.csv` | Yes | Metrics by demand group |
+| `reports/m5_demand_group_summary.csv` | Yes | Demand-group sizes and pre-test zero-sale fractions |
+| `reports/m5_backtesting_manifest.json` | Yes | Evaluation windows, models, cohort size, and grouping rules |
+
+Reports are recomputable from the M5 inputs. The script uses temporary files and atomic replacement for **each output**, but the collection of reports is not one all-or-nothing transaction. Tests use small synthetic Parquet files, so CI does not require the large M5 dataset.
+
+### Limitations and evaluation integrity
+
+- The evaluation covers a **deterministic 3,000-series sample**, not the full 30,490-series M5 population.
+- A 28-day average is a simple constant daily forecast; it does not model promotions, holidays, trends, or uncertainty.
+- Demand is often intermittent; around 60% of unified daily rows have zero sales. WAPE above 100% is possible, especially for low-volume groups.
+- We have already inspected results for the four final-evaluation windows. **Do not use them for selecting future LightGBM features, objectives, or hyperparameters.** Future model development must rely on separate, earlier validation windows.
+- Planned Phase 2 tuning windows are **`d_1746`–`d_1773`** and **`d_1774`–`d_1801`**, with origins at `d_1745` and `d_1773`. Determine eligibility using the history available at **each tuning origin**, not at the later final-test origin.
+- Forecast accuracy is not the same as inventory effectiveness; stockout costs, service levels, and lead times have not yet been modeled.
+
+## Preliminary One-Step-Ahead Forecasting (Legacy Sanity Check)
+
+The earlier experiment uses *aggregate* daily sales from 20 M5 product-store series over a 28-day validation period. It is a separate one-step-ahead exercise: actual sales from previous validation dates may be available when predicting later validation dates.
+
+| Model | MAE | RMSE | WAPE |
+|---|---:|---:|---:|
+| Naive | 16.86 | 20.33 | 43.91% |
+| Seasonal naive | 19.00 | 23.99 | 49.49% |
+
+These results are **not comparable** to the direct 28-day product-store-level benchmark above: the aggregation, sample size, and information available at prediction time differ. They are retained only as an early pipeline sanity check.
+
+Run the legacy experiment with:
 
 ```bash
 python -m scripts.evaluate_baselines
 ```
 
-This runs the initial one-step-ahead baseline evaluation. It is not the final fixed-origin 28-day forecasting benchmark.
+## Exploratory Data Analysis
 
-## Testing and Code Quality
+### Daily sales trends
 
-Run the automated tests:
+![Daily Sales Trends](reports/daily_sales.png)
 
-```bash
-python -m pytest -q
-```
+### Top-selling products
 
-Run Ruff:
+![Top-Selling Products](reports/top_products.png)
 
-```bash
-python -m ruff check .
-```
+## Technology Stack
 
-The project has 109 locally passing automated tests in the verified Python 3.13 environment, including 10 tests for Parquet conversion and validation.
+| Area | Tools |
+|---|---|
+| Language | Python 3.13 |
+| Processing | Pandas, NumPy |
+| Parquet storage | PyArrow, Apache Parquet |
+| Visualization | Matplotlib |
+| Configuration | PyYAML |
+| Testing and linting | Pytest, Ruff |
+| Collaboration and automation | Git, GitHub, GitHub Actions |
 
-GitHub Actions runs these checks automatically on pull requests and pushes to `main`.
+**Planned:** LightGBM forecasting; replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
 
-The CI badge at the top reflects the workflow status on `main`. New development-branch changes must pass their own pull request checks before merging.
+## Project Roadmap
 
-## Development Status
+### Completed — Phase 0: Setup and quality
 
-**Active development — October 2026**
+- [x] Project structure, pinned dependencies, Git workflow, and GitHub Actions CI.
+- [x] Initial M5 validation, exploratory analysis, time-series features, and one-step forecasting sanity checks.
 
-SupplyPilot AI currently provides a tested data engineering foundation, preliminary demand forecasting methods, and an optimized storage workflow with validated performance measurements.
+### Implemented locally — Phase 1: Data foundation and forecasting evaluation (PR review pending)
 
-The immediate development priorities are:
+- [x] Wide-format M5 CSV-to-Parquet conversion, verification, and performance benchmarking.
+- [x] Deterministic stratified sampling and unified daily sales/price data.
+- [x] Three direct 28-day forecasting baselines and four rolling-origin test windows.
+- [x] Common-series eligibility, leakage checks, and pooled performance metrics.
+- [x] Performance breakdowns by window, category, and historically defined demand sparsity.
+- [x] Reproducible full-sample experiment script and version-controlled summary reports.
 
-1. **Reliable forecasting evaluation:** Fixed-origin 28-day forecasting baselines and rolling-origin backtesting using the completed unified M5 dataset.
-2. **Machine learning:** LightGBM forecasting compared against baseline models using consistent evaluation windows.
-3. **Inventory planning:** Forecast-driven replenishment, uncertainty estimation, and simulation of inventory outcomes.
-4. **Application interface:** Interactive analytics and support for uploading user-provided sales data.
+### Planned — Phase 2: Machine learning
 
-The project prioritizes measured forecasting quality, transparent evaluation, and reproducible results over adding unnecessary features.
+- [ ] Implement leakage-safe lag and rolling features for multi-step ML forecasts.
+- [ ] Train and compare LightGBM objectives and hyperparameters **using earlier tuning windows only**.
+- [ ] Compare a finalized ML model with the frozen Phase 1 baselines on the same final-test protocol.
+- [ ] Analyze forecast limitations and uncertainty without tuning to test results.
 
-**Note:** Inventory levels, supplier lead times, and other operational inputs not available in the M5 dataset will require clearly documented simulation assumptions.
+### Planned — Phase 3: Inventory optimization
+
+- [ ] Define and document inventory, lead-time, and cost assumptions absent from M5.
+- [ ] Implement replenishment rules, safety-stock policies, and simulation.
+- [ ] Compare service levels, stockouts, and inventory costs.
+
+### Planned — Phase 4: Product interface
+
+- [ ] Build an interactive Streamlit dashboard.
+- [ ] Support user-provided CSVs through a standardized input format.
+- [ ] Display forecasts, error analysis, and inventory recommendations.
+
+## Data and Scope Notes
+
+The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Later inventory experiments will need explicit, documented assumptions.
+
+This project currently demonstrates **data engineering and forecasting evaluation**. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and validated.
