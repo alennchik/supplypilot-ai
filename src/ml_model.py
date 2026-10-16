@@ -8,11 +8,21 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
+from src.calendar_features import (
+    CALENDAR_CATEGORICAL_FEATURES,
+    CALENDAR_FEATURE_NAMES,
+    CALENDAR_NUMERIC_FEATURES,
+)
 from src.ml_features import DEMAND_FEATURE_NAMES
 
 CATEGORICAL_FEATURES = ("store_id", "dept_id", "cat_id")
 NUMERIC_FEATURES = ("horizon", *DEMAND_FEATURE_NAMES)
 FEATURE_COLUMNS = (*NUMERIC_FEATURES, *CATEGORICAL_FEATURES)
+CYCLE2_FEATURE_COLUMNS = (*FEATURE_COLUMNS, *CALENDAR_FEATURE_NAMES)
+CYCLE2_CATEGORICAL_FEATURES = (
+    *CATEGORICAL_FEATURES,
+    *CALENDAR_CATEGORICAL_FEATURES,
+)
 OUTPUT_COLUMNS = ("series_id", "origin", "date", "horizon")
 
 
@@ -23,22 +33,64 @@ class GlobalDemandModel:
     best_iteration: int | None = None
     validation_mae_history: list[float] | None = None
     objective: str = "regression"
+    feature_columns: tuple[str, ...] = FEATURE_COLUMNS
+
+    @property
+    def calendar_features(self) -> bool:
+        """Whether this model requires the seven preregistered calendar fields."""
+        return self.feature_columns == CYCLE2_FEATURE_COLUMNS
+
+
+def _feature_schema(calendar_features: bool):
+    if not isinstance(calendar_features, bool):
+        raise TypeError("calendar_features must be a boolean")
+    if calendar_features:
+        return (
+            CYCLE2_FEATURE_COLUMNS,
+            (*NUMERIC_FEATURES, *CALENDAR_NUMERIC_FEATURES),
+            CYCLE2_CATEGORICAL_FEATURES,
+        )
+    return FEATURE_COLUMNS, NUMERIC_FEATURES, CATEGORICAL_FEATURES
+
+
+def _validate_category_levels(category_levels, categorical_features):
+    if not isinstance(category_levels, dict) or set(category_levels) != set(
+        categorical_features
+    ):
+        raise ValueError("Incompatible saved ML categorical schema")
+    for name, levels in category_levels.items():
+        if (
+            not isinstance(levels, list)
+            or not levels
+            or any(not isinstance(level, str) or not level.strip() for level in levels)
+            or len(set(levels)) != len(levels)
+        ):
+            raise ValueError("Invalid saved ML category levels")
+        if name in CALENDAR_CATEGORICAL_FEATURES and "None" not in levels:
+            raise ValueError("Saved ML calendar category levels must include literal None")
 
 
 def _prepare_features(
     data: pd.DataFrame,
     category_levels: dict[str, list[str]] | None = None,
+    *,
+    calendar_features: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, list[str]]]:
     """Use a fixed feature schema; encode unfamiliar categories as missing."""
-    missing = set(FEATURE_COLUMNS) - set(data.columns)
+    feature_columns, numeric_features, categorical_features = _feature_schema(
+        calendar_features
+    )
+    missing = set(feature_columns) - set(data.columns)
     if missing:
         raise ValueError(f"Missing model features: {sorted(missing)}")
     if data.empty:
         raise ValueError("Model input cannot be empty")
+    if category_levels is not None:
+        _validate_category_levels(category_levels, categorical_features)
 
     features = pd.DataFrame(index=range(len(data)))
 
-    for name in NUMERIC_FEATURES:
+    for name in numeric_features:
         values = pd.to_numeric(data[name], errors="raise").to_numpy(
             dtype=np.float64, na_value=np.nan
         )
@@ -46,19 +98,26 @@ def _prepare_features(
         if np.isinf(values).any():
             raise ValueError(f"Non-finite numeric feature: {name}")
 
-        if name == "horizon":
+        if name in {"horizon", "target_month", "target_day_of_month"}:
+            maximum = {"horizon": 28, "target_month": 12, "target_day_of_month": 31}[
+                name
+            ]
             if (
                 not np.isfinite(values).all()
-                or ((values < 1) | (values > 28) | (values != np.floor(values))).any()
+                or ((values < 1) | (values > maximum) | (values != np.floor(values))).any()
             ):
-                raise ValueError("horizon must be an integer from 1 to 28")
+                raise ValueError(f"{name} must be an integer from 1 to {maximum}")
+            features[name] = values.astype(np.int8)
+        elif name in CALENDAR_NUMERIC_FEATURES:
+            if not np.isfinite(values).all() or not np.isin(values, [0, 1]).all():
+                raise ValueError(f"{name} must be binary 0/1")
             features[name] = values.astype(np.int8)
         else:
             features[name] = values.astype(np.float32)
 
     learned_levels: dict[str, list[str]] = {}
 
-    for name in CATEGORICAL_FEATURES:
+    for name in categorical_features:
         values = data[name].reset_index(drop=True)
 
         if (
@@ -71,6 +130,10 @@ def _prepare_features(
 
         if category_levels is None:
             levels = sorted(values.unique().tolist())
+            if name in CALENDAR_CATEGORICAL_FEATURES:
+                # Reserve the explicit no-event level even if every fit date
+                # happened to have an event. It must never become missing.
+                levels = sorted(set(levels) | {"None"})
         else:
             levels = category_levels[name]
 
@@ -79,7 +142,7 @@ def _prepare_features(
             values.where(values.isin(levels)), categories=levels
         )
 
-    return features.loc[:, list(FEATURE_COLUMNS)], learned_levels
+    return features.loc[:, list(feature_columns)], learned_levels
 
 
 def clipped_mae(
@@ -101,6 +164,7 @@ def train_global_model(
     objective: str = "regression",
     validation_data: pd.DataFrame | None = None,
     early_stopping_rounds: int = 100,
+    calendar_features: bool = False,
 ) -> GlobalDemandModel:
     """Fit a global multi-horizon LightGBM demand model.
 
@@ -133,7 +197,10 @@ def train_global_model(
     if "target" not in training_data.columns:
         raise ValueError("Training data must include target")
 
-    features, levels = _prepare_features(training_data)
+    feature_columns, _, categorical_features = _feature_schema(calendar_features)
+    features, levels = _prepare_features(
+        training_data, calendar_features=calendar_features
+    )
 
     target = pd.to_numeric(
         training_data["target"],
@@ -163,7 +230,7 @@ def train_global_model(
     regressor = lgb.LGBMRegressor(**params)
 
     fit_kwargs = {
-        "categorical_feature": list(CATEGORICAL_FEATURES),
+        "categorical_feature": list(categorical_features),
     }
 
     evaluation_history = {}
@@ -175,6 +242,7 @@ def train_global_model(
         validation_features, _ = _prepare_features(
             validation_data,
             category_levels=levels,
+            calendar_features=calendar_features,
         )
 
         validation_target = pd.to_numeric(
@@ -219,6 +287,7 @@ def train_global_model(
         best_iteration=best_iteration,
         validation_mae_history=mae_history,
         objective=objective,
+        feature_columns=feature_columns,
     )
 
 
@@ -231,7 +300,13 @@ def predict_global_model(
     if missing:
         raise ValueError(f"Missing prediction identifiers: {sorted(missing)}")
 
-    features, _ = _prepare_features(examples, model.category_levels)
+    if model.feature_columns not in (FEATURE_COLUMNS, CYCLE2_FEATURE_COLUMNS):
+        raise ValueError("Incompatible model feature schema")
+    features, _ = _prepare_features(
+        examples,
+        model.category_levels,
+        calendar_features=model.calendar_features,
+    )
 
     predictions = np.asarray(
         model.booster.predict(features, validate_features=True),
@@ -250,6 +325,7 @@ def predict_global_model(
 def save_global_model(model: GlobalDemandModel, path: Path) -> None:
     """Save LightGBM trees and category vocabulary as adjacent files."""
     path = Path(path)
+    _validate_model_schema(model)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     model.booster.save_model(
@@ -258,18 +334,34 @@ def save_global_model(model: GlobalDemandModel, path: Path) -> None:
     )
 
     metadata = {
-        "schema_version": 1,
-        "feature_columns": list(FEATURE_COLUMNS),
+        "schema_version": 2 if model.calendar_features else 1,
+        "feature_columns": list(model.feature_columns),
         "category_levels": model.category_levels,
         "objective": model.objective,
         "best_iteration": model.best_iteration,
         "validation_mae_history": model.validation_mae_history,
     }
+    if model.calendar_features:
+        metadata["categorical_features"] = list(CYCLE2_CATEGORICAL_FEATURES)
+        metadata["unseen_category_policy"] = "missing"
 
     path.with_suffix(".json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _validate_model_schema(model: GlobalDemandModel) -> None:
+    """Reject metadata that cannot describe the saved LightGBM feature matrix."""
+    if model.feature_columns not in (FEATURE_COLUMNS, CYCLE2_FEATURE_COLUMNS):
+        raise ValueError("Incompatible saved ML feature schema")
+    _, _, categorical_features = _feature_schema(model.calendar_features)
+    _validate_category_levels(model.category_levels, categorical_features)
+    if model.booster.feature_name() != list(model.feature_columns):
+        raise ValueError("Saved booster feature names differ from ML feature schema")
+    expected_levels = [model.category_levels[name] for name in categorical_features]
+    if model.booster.pandas_categorical != expected_levels:
+        raise ValueError("Saved booster category levels differ from ML categorical schema")
 
 
 def load_global_model(path: Path) -> GlobalDemandModel:
@@ -278,20 +370,26 @@ def load_global_model(path: Path) -> GlobalDemandModel:
 
     metadata = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
 
-    if metadata.get("schema_version") != 1 or metadata.get("feature_columns") != list(
-        FEATURE_COLUMNS
-    ):
+    version = metadata.get("schema_version")
+    feature_columns = metadata.get("feature_columns")
+    if version == 1 and feature_columns == list(FEATURE_COLUMNS):
+        schema = FEATURE_COLUMNS
+    elif version == 2 and feature_columns == list(CYCLE2_FEATURE_COLUMNS):
+        schema = CYCLE2_FEATURE_COLUMNS
+        if metadata.get("categorical_features") != list(CYCLE2_CATEGORICAL_FEATURES):
+            raise ValueError("Incompatible saved ML categorical schema")
+        if metadata.get("unseen_category_policy") != "missing":
+            raise ValueError("Incompatible saved ML unseen category policy")
+    else:
         raise ValueError("Incompatible saved ML feature schema")
 
-    category_levels = metadata["category_levels"]
-
-    if set(category_levels) != set(CATEGORICAL_FEATURES):
-        raise ValueError("Incompatible saved ML categorical schema")
-
-    return GlobalDemandModel(
+    model = GlobalDemandModel(
         booster=lgb.Booster(model_file=str(path)),
-        category_levels=category_levels,
+        category_levels=metadata.get("category_levels"),
         best_iteration=metadata.get("best_iteration"),
         validation_mae_history=metadata.get("validation_mae_history"),
         objective=metadata.get("objective", "regression"),
+        feature_columns=schema,
     )
+    _validate_model_schema(model)
+    return model

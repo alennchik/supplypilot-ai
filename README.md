@@ -6,7 +6,7 @@
 
 SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and, in later phases, supporting data-driven inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
 
-**Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **preregistered LightGBM validation cycle** are complete. Nine global LightGBM configurations were evaluated on fixed November–December 2015 / December 2015–January 2016 validation windows. The selected **Tweedie / 8-origin** model achieved **80.8670% pooled WAPE**, compared with **83.4165%** for the MA28 baseline **on the same V2 observations**. All nine models' WAPE scores and best boosting iterations were reproduced in a second run. **LightGBM has not yet been evaluated on the later four-window final-test benchmark.** Inventory optimization, end-to-end inference from new raw sales files, and the dashboard remain future work.
+**Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE. **LightGBM has not yet been evaluated on the later four-window final-test benchmark.** Inventory optimization, end-to-end inference from new raw sales files, and the dashboard remain future work.
 
 ## Highlights
 
@@ -15,8 +15,9 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - **Phase 1 final-window baseline benchmark:** 2,996 eligible series across four 28-day windows; **1,006,656 total predictions** across three baseline methods. These are **not** the Phase 2 validation windows.
 - **Phase 1 baseline benchmark:** MA28 had **74.38% pooled WAPE** across the four later windows, versus **86.98%** for seasonal naive and **97.96%** for naive; these figures **must not** be compared directly with Phase 2 V2 WAPE.
 - **Phase 2 model selection:** 9 preregistered LightGBM candidates, 2,992 fixed V1/V2 series, and 83,776 V2 forecasts per candidate. Selected Tweedie (8 origins): **80.8670% WAPE**, **0.9832 MAE**, **2.4318 RMSE**; MA28 on those V2 rows: **83.4165% WAPE**.
-- **Reproducibility:** second run matched all nine WAPE scores within `1e-9` and all nine `best_iteration` values exactly; **11,744 V1 learning-curve points** recorded.
-- **279 locally passing automated tests** (one known Pandas warning); Ruff checks pass. GitHub Actions CI checks changes on pull requests and on `main`.
+- **Calendar-Aware Cycle 2:** adopted 8-origin Tweedie: **79.8558% daily**, **42.5783% pooled weekly**, **32.1468% 28-day aggregated WAPE**; both candidates and the adoption decision reproduced in two independent runs. See [results and limitations](#completed-cycle-2-results).
+- **Cycle 1 reproducibility:** second run matched all nine WAPE scores within `1e-9` and all nine `best_iteration` values exactly; **11,744 V1 learning-curve points** recorded.
+- Automated unit and integration tests cover both ML cycles; run Pytest and Ruff with the commands below. GitHub Actions CI checks changes on pull requests and on `main`.
 - Wide Parquet storage is **73.2% smaller** than CSV, with **17.94× faster** median full-table loading in the measured local benchmark (not a universal performance guarantee).
 - **668,808 cutoff-bounded supervised ML rows** generated across eight weekly training origins, 28 forecast horizons, and 2,989 unique eligible series; 2.80 s generation time and 850.81 MiB process peak RSS on the local Mac benchmark.
 - **Initial model persistence smoke test:** 4.96 s fitting time for a separate 100-tree regression model, 451.70 MiB peak process RSS, and a successful 28-horizon save/reload test on a MacBook Air M2 (8 GB RAM). This preliminary test is distinct from the nine-candidate validation experiment.
@@ -50,6 +51,7 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - Generate reproducible prediction files, CSV reports, and an experiment manifest.
 - Generate reproducible ML training Parquet and a JSON dataset manifest; train a global LightGBM regressor across all 28 forecast horizons, save/load the model and category vocabulary, and record a model-training manifest.
 - Predict nonnegative daily demand from **already-prepared origin-relative feature rows**. Select and evaluate global regression, Poisson, and Tweedie LightGBM models on fixed V1/V2 validation windows using early stopping and pooled WAPE; generate MAE/RMSE, learning curves, resource reports, and MA28 diagnostics.
+- Opt into Calendar-Aware Cycle 2: add seven scheduled target-date predictors, compare two frozen Tweedie configurations, report daily/weekly/28-day WAPE for four matched methods, and apply the preregistered adoption rule automatically. Completed results and the reproduced adoption decision are documented below for the fixed sampled cohort.
 - **Not yet implemented:** automated end-to-end inference from a new raw sales-history file or LightGBM scoring on the later four-window final benchmark.
 
 ### Quality and Automation
@@ -157,14 +159,24 @@ The command trains regression, Poisson, and Tweedie objectives with 8, 16, and 3
 
 **Runtime warning:** this is a full nine-model training experiment (approximately 16 minutes 27 seconds for the documented second run on a MacBook Air M2); it is **not** the separate 100-tree smoke test in step 6.
 
-### 8. Run quality checks
+### 8. Inspect or reproduce Calendar-Aware Cycle 2
+
+The Cycle 2 implementation has a separate opt-in runner and report namespace. Inspect its frozen protocol without reading data or fitting models:
+
+```bash
+python -m scripts.run_cycle2_calendar
+```
+
+A full run requires the prepared M5 sales and metadata Parquet files **and** `data/raw/calendar.csv`. See [Calendar-Aware LightGBM Cycle 2](#calendar-aware-lightgbm-cycle-2) for execution and independent-reproduction commands. The completed sampled-cohort experiments and adoption decision are saved under `reports/cycle2_calendar/first_run/` and `reports/cycle2_calendar/repro_run/`; these are not full-population M5 results.
+
+### 9. Run quality checks
 
 ```bash
 python -m ruff check .
 python -m pytest -q
 ```
 
-The documented local run passed **279 tests** with one known Pandas `RuntimeWarning` from a deliberately invalid-value test. A successful local run does not itself mean CI has passed for an unmerged pull request.
+Tests use synthetic inputs and do not require Kaggle data. A Pandas `RuntimeWarning` from a deliberately invalid-value test is known in the original suite. A successful local run does not itself mean GitHub Actions CI has run for an unmerged change.
 
 ## M5 Parquet Storage and Performance
 
@@ -374,7 +386,7 @@ Each example has a unique `(series_id, origin, horizon)` key, where `horizon` ra
 - **Forecast feature:** integer `horizon` (1–28), used by the initial LightGBM model to share parameters across all forecast days.
 - **Missingness:** a missing historical observation is `NaN`, not a zero sale. A series needs 28 consecutive observed days up to its origin; longer features can remain missing if their full lookback is unavailable.
 
-The first-cycle ML feature set **does not include future sales or future prices**, calendar/event indicators, SNAP flags, or selling-price features. A separately preregistered second development cycle may examine date-known calendar/event/SNAP features. The first-cycle results remain preserved rather than being overwritten or retroactively retuned.
+The first-cycle ML feature set **does not include future sales or future prices**, calendar/event indicators, SNAP flags, or selling-price features. The separately preregistered [Calendar-Aware Cycle 2](#calendar-aware-lightgbm-cycle-2) adds only seven date-known calendar/event/SNAP predictors through an explicit opt-in. The first-cycle results remain preserved rather than being overwritten or retroactively retuned.
 
 ### Training cutoff and leakage protection
 
@@ -456,7 +468,7 @@ python -m scripts.train_ml_model
 
 The training script validates the `(series_id, origin, horizon)` keys, 28-day paths, target dates, and cutoff; loads the saved model and checks the same complete 28-day prediction path against the in-memory model. Tests cover saved-schema compatibility, invalid targets/horizons, unseen categories, feature inclusion and exclusion, duplicates, incomplete paths, and saved-model reload. The output files are written directly and **are not a multi-file atomic transaction**.
 
-**Still not implemented:** automated construction of new prediction feature rows from raw unseen sales histories, a second calendar-aware ML development cycle, and the frozen four-window **final ML benchmark**. The Phase 1 four-window WAPE numbers apply **only to the three baseline models**; they are not directly comparable with the separate V2 LightGBM validation results below.
+**Still not implemented:** automated end-to-end inference from arbitrary new raw sales files and the frozen four-window **final ML benchmark**. The calendar-aware second-cycle experiments and independent reproduction are complete on the fixed sampled cohort. The Phase 1 four-window WAPE numbers apply **only to the three baseline models**; they are not directly comparable with the separate V2 LightGBM validation results below.
 
 ## Preregistered V1/V2 LightGBM Validation
 
@@ -519,7 +531,7 @@ This corresponds to approximately **3.06% lower aggregate absolute error relativ
 - **Product categories:** the selected Tweedie model's V2 pooled WAPE is approximately **75.28% FOODS**, **85.08% HOUSEHOLD**, and **104.43% HOBBIES**. These are subgroup errors, not separate tuned models.
 - **Christmas sensitivity:** pooled WAPE is **80.8670%** across V2, approximately **77.0158%** excluding December 24–26, and **128.9390%** on those three dates alone. This is a *descriptive diagnostic*, not a different official selection score.
 - **Near-zero denominator:** on **December 25, 2015**, observed total sales across the fixed cohort were just **2 units**. The one-day WAPE therefore becomes extremely large; per-day WAPE should **not** be averaged to obtain the overall score.
-- **Limited exogenous information:** the first-cycle model uses historical demand, `horizon`, and store/department/category identifiers. It **does not yet use** M5 event, calendar, SNAP, or price inputs as predictors; holiday effects and intermittent demand remain difficult to model.
+- **Limited exogenous information:** the first-cycle model uses historical demand, `horizon`, and store/department/category identifiers. It does not use M5 event, calendar, SNAP, or price inputs as predictors; Cycle 2 adds scheduled calendar/event/SNAP features, while prices remain excluded; holiday effects and intermittent demand remain difficult to model.
 - **Validation reuse:** future development cycles using the same V2 necessarily introduce some selection bias. Keep all runs and preregister each small change set. Only a final evaluation, following frozen choices, can assess generalization beyond this development window.
 - **Scope:** sampled M5 retail data, not the full 30,490-series population. No claims of deployment-grade forecasts, improved service levels, or inventory cost savings are made.
 
@@ -565,9 +577,173 @@ The default output directory is `reports/`. The validation runner and reporting 
 
 The initial outputs were separately backed up locally under `reports/first_run/`; the expanded second-run reports were created under `reports/repro_run/` and compared against the first-run CSV. These directories document the two-run audit trail. The canonical `reports/ml_validation_*` paths listed above are the intended compact, version-controlled outputs once the verified second-run reports are copied into place; **raw M5 data, models, temporary patch files, and execution logs should not be committed**. The initial result is not erased or retrospectively replaced.
 
-### Next development cycle
+## Calendar-Aware LightGBM Cycle 2
 
-A **separate Issue and PR** can preregister a small set of calendar/event/SNAP features, then compare the new cycle on V1/V2 while retaining all first-cycle results. The current winner's **1,944 iterations out of a 2,000-tree cap** may also justify investigating a larger cap in that *separate* cycle, but not changing the first-cycle protocol retroactively. Limit iterations on V2 and treat its results as development-only. When model and evaluation code are frozen, run the four-window final ML assessment **once**, without choosing the model from those errors.
+[Issue #26](https://github.com/alennchik/supplypilot-ai/issues/26) preregistered a second development cycle testing scheduled target-date calendar information against the frozen Cycle 1 winner. **Both candidate experiments, the adoption decision, and independent reproduction are complete**, with reports in [`first_run/`](reports/cycle2_calendar/first_run/) and [`repro_run/`](reports/cycle2_calendar/repro_run/). Every original `reports/ml_validation_*` file is preserved. Results cover the fixed **2,992 eligible series and 83,776 V2 observations** from the 3,000-series sample, not the full **30,490-series** population. **The final ML holdout has not been evaluated.**
+
+### Exactly seven added predictors
+
+All **18 Cycle 1 predictors remain unchanged**. `src/calendar_features.py` builds exactly these seven extra features by matching **target `date = origin + horizon`**, rather than the origin date, against an explicit calendar table:
+
+| Added predictor | Target-date derivation |
+|---|---|
+| `target_month` | Integer month, 1–12 |
+| `target_day_of_month` | Integer day of month, 1–31 |
+| `target_is_event` | 1 if either `event_name_1` or `event_name_2` is nonempty; otherwise 0 |
+| `target_event_type_1` | Categorical `event_type_1`; missing is the explicit string level `None` |
+| `target_event_type_2` | Categorical `event_type_2`; missing is the explicit string level `None` |
+| `target_is_christmas` | 1 exactly on December 25; otherwise 0 |
+| `target_is_snap` | Binary `snap_CA`, `snap_TX`, or `snap_WI` selected for the series' state |
+
+**Information assumption:** M5 dates, scheduled events, and state-specific SNAP flags are treated as **known at each forecast origin**. These are the only permitted post-origin predictors. Future sales, observed future prices, and outcome-derived information are excluded. The unified `sales.parquet` does not contain event/SNAP fields, so the runner reads `data/raw/calendar.csv` separately.
+
+Calendar dates must be valid and unique, and every required target date must be present. Both event slots are checked: a name without its matching type, or a type without its matching name, is rejected. Event-name identity is never a feature. SNAP must be binary; state comes from validated `state_id` or the `CA_`/`TX_`/`WI_` store prefix, with inconsistent or unsupported mappings rejected. Joins preserve every forecast row. All origins are Sunday, so `horizon` already determines weekday; no weekday predictor or other holiday is added.
+
+### Shared training and inference architecture
+
+The existing demand-history pipeline continues to calculate inputs only through each row's origin. `src/ml_dataset.py`, `src/ml_inference.py`, and `src/ml_validation.py` accept an explicit optional calendar; omitting it retains Cycle 1 behavior. The new builder attaches the same seven features for training and forecasting. `src/ml_model.py` selects the frozen 25-column Cycle 2 schema only when `calendar_features=True`.
+
+The model freezes predictor order and training categorical levels, including the two event-type columns, and saves that schema and vocabulary with its booster. The literal string `None` is a category, not a missing value. Valid strings unseen during training are explicitly encoded as missing at inference; reloading uses the stored categories. Predictions retain Cycle 1's nonnegative clipping. Synthetic tests exercise calendar alignment and validation, leakage boundaries, category encoding, save/reload, metrics, selection, and reporting without requiring M5 data.
+
+### Frozen chronology and two candidates
+
+| Role | Origin / boundary | Target dates |
+|---|---|---|
+| Fit | Complete 28-day labels at or before **2015-11-08 (`d_1745`)** | 8 or 16 weekly training origins |
+| V1: clipped-MAE early stopping only | **2015-11-08** | Nov 9–Dec 6, 2015 |
+| V2: candidate selection only | **2015-12-06 (`d_1773`)** | Dec 7, 2015–Jan 3, 2016 |
+| Later four-window benchmark | Jan 4, 2016 onward | Excluded from Cycle 2 scoring and tuning |
+
+The fixed Cycle 1 **2,992-series** cohort and complete 28-day paths are mandatory: every method must match the same **83,776 V2 observations**, with unique `(series_id, origin, horizon, date)` keys and identical actual values. Missing targets, altered cohorts, or mismatched predictions fail explicitly. Fitting labels cannot extend beyond November 8; V1 labels control early stopping, and V2 labels are never used to fit or stop trees. The runner excludes later sales at the Parquet read boundary and reads no observed prices.
+
+Exactly two calendar candidates run **sequentially**, in this order:
+
+1. `cycle2_tweedie_8_origins_calendar`
+2. `cycle2_tweedie_16_origins_calendar`
+
+Both use objective `tweedie`, variance power **1.5**, learning rate **0.05**, **31** leaves, minimum **20** samples per leaf, maximum **2,000** estimators, V1 **clipped MAE** early stopping with patience **100**, seed **42**, **2 CPU threads**, `deterministic=True`, and `force_col_wise=True`. Each candidate's best iteration is learned only on V1. The runner does not add regression, Poisson, 32-origin, or 5,000-tree candidates. Near-cap fits are reported as a limitation; the tree cap remains frozen.
+
+To recover missing per-row reference predictions, the runner also fits the **original unchanged** Cycle 1 `tweedie_8_origins` configuration. This is solely a reference reproduction, not another Cycle 2 candidate. It must recover **1,944 best iterations** and V2 daily WAPE **80.86700130410776%** within `1e-9` absolute tolerance. Matched MA28 must reproduce **83.41645395641076%**. A failed reference check prevents an adoption decision and leaves the original reports intact.
+
+### Daily, weekly, and 28-day WAPE
+
+`src/cycle2_metrics.py` validates and aligns raw floating-point, nonnegative predictions for **both candidates, the frozen Cycle 1 champion, and matched MA28**. For every method it computes:
+
+- **Primary: daily pooled WAPE**, `100 × sum(abs(actual − prediction)) / sum(actual)`, over all 83,776 daily series-horizon rows. Predictions are not rounded.
+- **Weekly aggregated WAPE:** sum actual and predicted demand separately within each series, origin, and horizon bucket **1–7**, **8–14**, **15–21**, or **22–28**; then pool the absolute errors over the **2,992 × 4** series-week rows. Report both pooled four-week WAPE and each week's pooled WAPE.
+- **28-day aggregated WAPE:** sum within each series and origin over all 28 days, then pool absolute errors across the **2,992** series-period rows.
+
+Absolute error is taken **before pooling across different series**. Errors on different days may cancel only within the same series and aggregation period; overprediction of one item cannot cancel underprediction of another. A zero pooled actual denominator fails explicitly. Weekly and 28-day WAPE are diagnostic only. MAE, RMSE, best iteration, V1 learning curves, horizon/category breakdowns, Christmas sensitivity, runtime, and process peak RSS are also reported.
+
+### Automatic adoption rule
+
+Selection uses **full V2 daily pooled WAPE** only. A calendar candidate qualifies only when its WAPE is **strictly below 79.86700130410776%**, exceeding a **1.0 percentage point improvement** over frozen Cycle 1. Exactly a 1.0-point improvement does not qualify.
+
+- If neither qualifies, retain Cycle 1 `tweedie_8_origins`.
+- If exactly one qualifies, select it.
+- If both qualify, find their minimum daily WAPE. Prefer the **8-origin** candidate if its WAPE is within **1.0 percentage point** of that minimum; otherwise select the lower-WAPE candidate.
+
+The runner records both candidates and its decision automatically, including a failure to improve enough and nonadoption. The 1-point threshold is a pragmatic complexity rule, **not statistical significance**. Christmas subsets and aggregated WAPEs cannot change the decision.
+
+### Completed Cycle 2 results
+
+Both runs report the same scores below (WAPE in percent, rounded to four decimals). Sources: [`candidate_scores.csv`](reports/cycle2_calendar/first_run/candidate_scores.csv), [`method_metrics.csv`](reports/cycle2_calendar/first_run/method_metrics.csv), and [`protocol_selection.json`](reports/cycle2_calendar/first_run/protocol_selection.json).
+
+| Method | Best iteration | Daily WAPE | Pooled weekly WAPE | 28-day aggregated WAPE |
+|---|---:|---:|---:|---:|
+| Frozen Cycle 1: `tweedie_8_origins` | 1,944 | 80.8670% | 42.9716% | 31.6998% |
+| **Cycle 2: `cycle2_tweedie_8_origins_calendar` (adopted)** | **1,743** | **79.8558%** | **42.5783%** | **32.1468%** |
+| Cycle 2: `cycle2_tweedie_16_origins_calendar` | 990 | 80.1452% | 42.0917% | 31.0158% |
+| Matched MA28 | — | 83.4165% | 44.7693% | 32.9128% |
+
+The 8-origin candidate improves daily WAPE by **1.0112 percentage points** over Cycle 1, clearing the strict **79.86700130410776%** threshold by just **0.0112 points**. The 16-origin candidate improves by **0.7218 points** and does not qualify. Thus only the 8-origin candidate qualifies and is adopted under the preregistered rule; the fewer-origins tie preference is not needed. Its daily MAE is **0.9709** and RMSE **2.4600**, versus Cycle 1's **0.9832** and **2.4318**: RMSE worsens despite better WAPE/MAE. Training uses **668,808** rows for 8 origins and **1,336,692** for 16 origins, each with **2,989 training series**. Neither candidate is flagged near the fixed tree cap.
+
+The adopted model improves pooled weekly WAPE by **0.3933 points** over Cycle 1, but **28-day WAPE deteriorates slightly by 0.4469 points** (31.6998% → 32.1468%). It still beats matched MA28 by **3.5607 daily**, **2.1910 weekly**, and **0.7661 28-day points**. The 16-origin candidate has better aggregated scores than the adopted model, but aggregation diagnostics do not determine adoption.
+
+| Method | Week 1 WAPE | Week 2 WAPE | Week 3 WAPE | Week 4 WAPE |
+|---|---:|---:|---:|---:|
+| Cycle 1 | 36.1781% | 40.9383% | 49.3468% | 46.2819% |
+| Cycle 2, 8 origins | 36.9897% | 42.3217% | 46.9120% | 44.6454% |
+| Cycle 2, 16 origins | 37.1330% | 41.4242% | 45.8761% | 44.4206% |
+| MA28 | 40.5844% | 41.8902% | 51.3063% | 46.2386% |
+
+The adopted model improves weeks 3–4 over Cycle 1 but worsens weeks 1–2; the pooled improvement is not uniform across weeks.
+
+### Christmas sensitivity and category diagnostics
+
+These descriptive subsets do not change selection. [`christmas_sensitivity.csv`](reports/cycle2_calendar/first_run/christmas_sensitivity.csv) reports:
+
+| Method | All V2 WAPE (83,776 rows) | Excluding Dec 24–26 (74,800 rows) | Dec 24–26 only (8,976 rows) |
+|---|---:|---:|---:|
+| Cycle 1 | 80.8670% | 77.0158% | 128.9390% |
+| Cycle 2, 8 origins | 79.8558% | 76.4252% | 122.6778% |
+| Cycle 2, 16 origins | 80.1452% | 76.6842% | 123.3475% |
+| MA28 | 83.4165% | 79.5095% | 132.1845% |
+
+The adopted model improves Christmas-window WAPE by **6.2613 points** over Cycle 1 and improves WAPE outside that window by **0.5907 points**. Christmas remains difficult; this single development window does not establish general holiday performance or isolate the effect of any individual feature.
+
+[`category_diagnostics.csv`](reports/cycle2_calendar/first_run/category_diagnostics.csv) reports daily pooled WAPE by category:
+
+| Category | V2 rows | Cycle 1 | Cycle 2, 8 origins | Cycle 2, 16 origins | MA28 |
+|---|---:|---:|---:|---:|---:|
+| FOODS | 39,284 | 75.2821% | 73.9784% | 74.2363% | 79.3059% |
+| HOBBIES | 15,680 | 104.4348% | 103.7305% | 105.0327% | 103.6354% |
+| HOUSEHOLD | 28,812 | 85.0787% | 84.7139% | 84.6230% | 85.1959% |
+
+The adopted model improves WAPE over Cycle 1 in all three categories, most strongly in FOODS. HOBBIES remains above 100% WAPE and slightly worse than MA28; the 16-origin model also worsens HOBBIES relative to Cycle 1. Improvements are not universal across metrics: the adopted model's category RMSE is higher than Cycle 1 in all three categories.
+
+### Independent reproduction and resources
+
+The independently fitted [`repro_run/`](reports/cycle2_calendar/repro_run/) records verification against `first_run/`. Both candidates' daily WAPE scores match exactly at saved precision (within `1e-9`), and best iterations match exactly (**1,743 / 990**). The reproduced Cycle 1 reference matches **80.86700130410776%** and **1,944** iterations in both runs. Both runs adopt the same 8-origin calendar model.
+
+All four methods' metric tables, category, horizon, and Christmas diagnostics, and all **4,933 V1 learning-curve rows** match exactly across runs. Protocol, training metadata, cohort/observation hashes, source-file hashes, and input hashes also match. Both manifests record source commit `d1da7c8b69a5ff9b05fe4952dd1039474b5d6fb1` with **`source_dirty: true`**; the file hashes document the actual working-tree sources rather than implying that commit alone reproduces them.
+
+| Resource | First run | Independent run |
+|---|---:|---:|
+| Experiment wall time | 285.97 s | 294.54 s |
+| Whole-process cumulative peak RSS | 1,656.84 MiB | 1,138.47 MiB |
+| 8-origin candidate fit time | 79.17 s | 80.95 s |
+| 16-origin candidate fit time | 92.24 s | 94.03 s |
+
+Both runs record macOS ARM64, Python **3.13.1**, LightGBM **4.7.0**, and two model threads. Runtime and memory vary between runs; they are local measurements, not performance guarantees.
+
+### Separate reproduction and report commands
+
+From the repository root after preparing the M5 inputs:
+
+```bash
+# Inspect the locked protocol; no data read, fitting, or report writes.
+python -m scripts.run_cycle2_calendar
+
+# Repeat the sampled-cohort experiment in a fresh directory.
+python -m scripts.run_cycle2_calendar --execute \
+  --output-dir reports/cycle2_calendar/new_first_run
+
+# Independently train again in a fresh namespace and compare scores/iterations.
+python -m scripts.run_cycle2_calendar --execute \
+  --output-dir reports/cycle2_calendar/new_repro_run \
+  --verify-against reports/cycle2_calendar/new_first_run
+```
+
+The completed runs are stored in `first_run/` and `repro_run/`; the commands above use new directories to preserve them. To compare a fresh run directly with the published first run, use `--verify-against reports/cycle2_calendar/first_run`.
+
+Use `--sales`, `--metadata`, and `--calendar` for explicit input paths. Report directories must be under a `cycle2_calendar` namespace. Existing run files are never overwritten: choose another fresh subdirectory for subsequent independent runs. `--verify-against` requires a fresh experiment, exact matching best iterations, and daily WAPE agreement within `1e-9`; it does not reuse prior predictions or fit results.
+
+| Report in each `reports/cycle2_calendar/{first_run,repro_run}/` directory | Contents |
+|---|---|
+| `candidate_scores.csv` | Both calendar candidates, daily V2 metrics, best iterations, training counts, fit times, and tree-cap flags |
+| `method_metrics.csv` | Daily, pooled weekly, four week-specific, and 28-day WAPE plus MAE/RMSE for all four aligned methods |
+| `v1_curves.csv` | V1 clipped-MAE curves and best-iteration markers for both candidates and reproduced Cycle 1 reference |
+| `horizon_diagnostics.csv` | All four methods' horizon breakdowns |
+| `category_diagnostics.csv` | All four methods' category breakdowns |
+| `christmas_sensitivity.csv` | All four methods' descriptive Christmas diagnostic subsets |
+| `protocol_selection.json` | Frozen protocol and decision; dataset/cohort/schema/category metadata; source commit and dirty status; source/input hashes; exact dates, dependency versions, runtime and process peak RSS |
+
+Peak RSS is the **whole-process cumulative high-water mark**, not per-model memory. Raw datasets, model binaries, and unnecessary per-row predictions are not committed. The linked reports contain the completed sampled-cohort experiments.
+
+### Evaluation limits and next step
+
+V2 is reused for a **second development cycle**, increasing susceptibility to selection optimism. Cycle 2 V2 scores remain development results, **not unbiased final generalization metrics**. The later baseline windows were already inspected during Phase 1, which limits the independence of any later comparison and must be disclosed. Freeze the implementation and adoption decision before a separate, **once-only** final ML evaluation on those later dates; no final ML scoring or tuning belongs to this issue. Larger-tree, quantile, inventory, dashboard, and arbitrary user-CSV work remains outside this cycle.
 
 ## Preliminary One-Step-Ahead Forecasting (Legacy Sanity Check)
 
@@ -609,7 +785,7 @@ python -m scripts.evaluate_baselines
 | Testing and linting | Pytest, Ruff |
 | Collaboration and automation | Git, GitHub, GitHub Actions |
 
-**Planned:** separately documented calendar-aware ML improvements, final ML evaluation, replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
+**Planned:** final ML evaluation, replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
 
 ## Project Roadmap
 
@@ -634,7 +810,8 @@ python -m scripts.evaluate_baselines
 - [x] Implement and train an initial global LightGBM regression model; verify model persistence and add synthetic integration tests.
 - [x] Preregister and run nine LightGBM candidates (three objectives × three training-origin counts) using V1 for early stopping and V2 for selection.
 - [x] Save all-candidate error metrics, V1 learning curves, resource usage, MA28 diagnostics, and reproduce all nine scores and best iterations in a second run.
-- [ ] Design and register a separate calendar-aware improvement cycle without rewriting first-cycle results.
+- [x] Preregister and implement Calendar-Aware Cycle 2 with seven predictors, two Tweedie candidates, aggregated metrics, automatic adoption rules, and separate reports.
+- [x] Run both Cycle 2 candidates on the fixed sampled cohort, independently reproduce their scores and best iterations, and document the adoption decision without rewriting first-cycle reports.
 - [ ] Compare a finalized ML model with the frozen Phase 1 baselines on the same final-test protocol.
 - [ ] Analyze forecast limitations and uncertainty without tuning to test results.
 
@@ -654,4 +831,4 @@ python -m scripts.evaluate_baselines
 
 The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Later inventory experiments will need explicit, documented assumptions.
 
-This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, and preregistered V1/V2 model selection with reproduced results**. The selected LightGBM candidate outperformed MA28 **on V2** but has **not** been evaluated on the later frozen four-window final benchmark. Its operational usefulness is not established; no inventory optimizer has been implemented. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and evaluated.
+This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, preregistered Cycle 1 V1/V2 model selection with reproduced results, and completed Calendar-Aware Cycle 2 experiments with independently reproduced results and a preregistered adoption decision**. The selected LightGBM candidate outperformed MA28 **on V2** but has **not** been evaluated on the later frozen four-window final benchmark. Its operational usefulness is not established; no inventory optimizer has been implemented. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and evaluated.

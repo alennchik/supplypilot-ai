@@ -1,0 +1,373 @@
+{
+  "protocol": {
+    "issue": "https://github.com/alennchik/supplypilot-ai/issues/26",
+    "training_cutoff": "2015-11-08",
+    "v1_origin": "2015-11-08",
+    "v1_targets": [
+      "2015-11-09",
+      "2015-12-06"
+    ],
+    "v2_origin": "2015-12-06",
+    "v2_targets": [
+      "2015-12-07",
+      "2016-01-03"
+    ],
+    "evaluation_series": 2992,
+    "v2_rows": 83776,
+    "candidates": [
+      "cycle2_tweedie_8_origins_calendar",
+      "cycle2_tweedie_16_origins_calendar"
+    ],
+    "model_parameters": {
+      "objective": "tweedie",
+      "tweedie_variance_power": 1.5,
+      "learning_rate": 0.05,
+      "num_leaves": 31,
+      "min_child_samples": 20,
+      "n_estimators": 2000,
+      "early_stopping_rounds": 100,
+      "early_stopping_metric": "V1 clipped MAE",
+      "random_state": 42,
+      "n_jobs": 2,
+      "deterministic": true,
+      "force_col_wise": true
+    },
+    "added_features": [
+      "target_month",
+      "target_day_of_month",
+      "target_is_event",
+      "target_event_type_1",
+      "target_event_type_2",
+      "target_is_christmas",
+      "target_is_snap"
+    ],
+    "feature_columns": [
+      "horizon",
+      "sales_at_origin",
+      "sales_lag_1_at_origin",
+      "sales_lag_7_at_origin",
+      "sales_lag_14_at_origin",
+      "sales_lag_28_at_origin",
+      "rolling_mean_7",
+      "rolling_mean_28",
+      "rolling_mean_56",
+      "rolling_std_7",
+      "rolling_std_28",
+      "zero_fraction_28",
+      "zero_fraction_56",
+      "rolling_sum_7",
+      "rolling_sum_28",
+      "store_id",
+      "dept_id",
+      "cat_id",
+      "target_month",
+      "target_day_of_month",
+      "target_is_event",
+      "target_event_type_1",
+      "target_event_type_2",
+      "target_is_christmas",
+      "target_is_snap"
+    ],
+    "categorical_features": [
+      "store_id",
+      "dept_id",
+      "cat_id",
+      "target_event_type_1",
+      "target_event_type_2"
+    ],
+    "calendar_assumption": "Dates, scheduled events and state SNAP are known at origin",
+    "unseen_category_policy": "Encode unseen valid strings as missing; literal None is a level",
+    "weekday": "All origins are Sunday; numeric horizon determines weekday",
+    "selection_metric": "full V2 daily pooled WAPE, in percentage points",
+    "adoption_threshold_exclusive": 79.86700130410776,
+    "complexity_tolerance_percentage_points": 1.0,
+    "frozen_cycle1": {
+      "candidate": "tweedie_8_origins",
+      "best_iteration": 1944,
+      "v2_wape": 80.86700130410776,
+      "ma28_v2_wape": 83.41645395641076,
+      "reproduction_absolute_tolerance": 1e-09
+    },
+    "metric_definitions": {
+      "daily_wape": "100 * sum(abs(actual - prediction)) / sum(actual)",
+      "weekly_wape": "Sum within series/origin/horizon-week, then pooled WAPE",
+      "period_28_wape": "Sum within series/origin over 28 days, then pooled WAPE",
+      "week_buckets": [
+        [
+          1,
+          7
+        ],
+        [
+          8,
+          14
+        ],
+        [
+          15,
+          21
+        ],
+        [
+          22,
+          28
+        ]
+      ],
+      "zero_pooled_actual": "Fail explicitly; never silently omit a method or week"
+    },
+    "limitations": [
+      "One-point threshold is a complexity rule, not statistical significance",
+      "V2 is reused for development; metrics are subject to selection optimism",
+      "Later Phase 1 baseline windows were already inspected",
+      "No final holdout scoring; that requires a separate once-only frozen evaluation",
+      "Candidates near the fixed 2000-tree cap are reported, never extended"
+    ]
+  },
+  "selected_candidate": {
+    "candidate": "cycle2_tweedie_8_origins_calendar",
+    "n_origins": 8,
+    "best_iteration": 1743,
+    "v2_wape": 79.85575245261907,
+    "objective": "tweedie",
+    "adopted_cycle2": true,
+    "selection_metric": "daily pooled V2 WAPE",
+    "frozen_cycle1_v2_wape": 80.86700130410776,
+    "strict_adoption_threshold": 79.86700130410776,
+    "required_improvement_percentage_points": 1.0,
+    "complexity_tolerance_percentage_points": 1.0,
+    "best_observed_cycle2_v2_wape": 79.85575245261907,
+    "reason": "Qualifying daily V2 WAPE with the 1 point, fewer origins preference"
+  },
+  "execution": {
+    "reference_reproduction": {
+      "candidate": "tweedie_8_origins",
+      "objective": "tweedie",
+      "n_origins": 8,
+      "best_iteration": 1944,
+      "v2_wape": 80.86700130410776,
+      "v2_mae": 0.9832306093435372,
+      "v2_rmse": 2.431830110735614,
+      "v1_best_mae": 0.9747048596275341,
+      "training_rows": 668808,
+      "fit_seconds": 77.939
+    },
+    "evaluation_series": 2992,
+    "v1_rows": 83776,
+    "v2_rows": 83776,
+    "cohort_sha256": "9ce198d4a871aee710dcfd6304799be7ca13c4525beaa5471e373eb1afeced24",
+    "v2_observations_sha256": "93dc2a74a2714acd846b54b60ab3b2046ac4c891b0eb7a72623198d05e622aac",
+    "experiment_wall_seconds": 294.53518408257514,
+    "completed_at_utc": "2026-10-16T00:39:51.470197+00:00",
+    "process_cumulative_peak_rss_mib": 1138.47,
+    "rss_note": "Whole-process high-water mark, not per-candidate memory",
+    "feature_schema": [
+      "horizon",
+      "sales_at_origin",
+      "sales_lag_1_at_origin",
+      "sales_lag_7_at_origin",
+      "sales_lag_14_at_origin",
+      "sales_lag_28_at_origin",
+      "rolling_mean_7",
+      "rolling_mean_28",
+      "rolling_mean_56",
+      "rolling_std_7",
+      "rolling_std_28",
+      "zero_fraction_28",
+      "zero_fraction_56",
+      "rolling_sum_7",
+      "rolling_sum_28",
+      "store_id",
+      "dept_id",
+      "cat_id",
+      "target_month",
+      "target_day_of_month",
+      "target_is_event",
+      "target_event_type_1",
+      "target_event_type_2",
+      "target_is_christmas",
+      "target_is_snap"
+    ],
+    "categorical_schema": [
+      "store_id",
+      "dept_id",
+      "cat_id",
+      "target_event_type_1",
+      "target_event_type_2"
+    ],
+    "source_commit": "d1da7c8b69a5ff9b05fe4952dd1039474b5d6fb1",
+    "source_dirty": true,
+    "source_files_sha256": {
+      "src/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "src/analysis.py": "f96b7006622d71ac4dc6ac9fef6c7a1444ddb4e6dbd59ad5b3831965311d5f19",
+      "src/backtesting.py": "bb4a1b30fdcd6fe2ddff2ae83cab81e66fc0efb3117d6aedb276cbc9a1c34bb5",
+      "src/baselines.py": "0093cd18ea8096371baa9c9f8653ae64ccf9b5e2cd627097f1edda6a22e65da9",
+      "src/calendar_features.py": "b5cfdbb66f00b4e0fc7fd4fc4450359a185dc7066a39d2d1f1bd0d1a1eb86cc9",
+      "src/config.py": "b8c2d721be27174dcd52cda7e45d1a9194bcc5f52ceb27d566db9a2196617b86",
+      "src/cycle2_metrics.py": "2745e3ae7a64903278d8dd57e772aa78390392a49a0f24117b0db426cfbfa48c",
+      "src/data_pipeline.py": "f95f5680de8d9208b061325d3c131bab31360b9e13e14fd48bf6bba615d8c611",
+      "src/evaluation.py": "2846f01f2aacdde02401a4ccb954183d210a5edeb79cb8f91a8125f8408f9968",
+      "src/forecast_baselines.py": "fd5d0a4c76791767601f5078770d727a8424ddd8afeb209084b5b9a5c72624aa",
+      "src/forecasting.py": "e4b6a3545f39552d6e58d00949651c110e685d16fabdb7e8cd4cd2959bfba44a",
+      "src/m5_sampling.py": "d10df2ea9de6a9593659be3370cb9289ec500c085f68bb785050e7e10294cf97",
+      "src/m5_unified.py": "13d570b29f14ee135f70eb61321d9dbc98093a049562195cbd8a393e9e95e010",
+      "src/metrics.py": "3625b33c3174d725541dc3a36ae8ce0b9c88f58a575331079d3401f8d793fca4",
+      "src/ml_dataset.py": "16f0a5f3f3a9edddc112b09cf311993f0f9e79842dc9a90ab8b07c2930f1ec51",
+      "src/ml_features.py": "6a7fa33cc295eed9c3da673982d189d0cbf11f46695710a4880313f22e83df2f",
+      "src/ml_inference.py": "9596cabd8fbec64e96c20b0b4369f656e5603170039e48ab896a209d93d3a9f8",
+      "src/ml_model.py": "8c64e6d6725738b502f2d03d0f84e74288d16a81e61aeabd9ab7689e7bb3a117",
+      "src/ml_validation.py": "083a03e0006f07eea5964a7374ecb9d26da99d7da1ce05c2ee73ef9cfbfd02c4",
+      "src/parquet_storage.py": "b0019096b531ef282df2e0c67b0dc8a774f89d6b4dde4a8a17b45952e4bb79ca",
+      "src/visualization.py": "44341beb4293691ab9ba4231beab4ecc2523ed1e3ad9805840c8a37d70e93177",
+      "scripts/benchmark_parquet.py": "132ca25d3b390da336e18092ecbdf7070c0b22a1e229ad9b7faf00f860ad755d",
+      "scripts/build_m5_unified.py": "eb2fb16e76ee749b06ace039695f319ba7ac52584d136e909d3a37e806a3eb85",
+      "scripts/build_ml_dataset.py": "907f11e9c8769c60aeab853391dc4cf5b92e5314ca619f5f43491942819584ad",
+      "scripts/convert_to_parquet.py": "b4bca2c59cf80cd6055802ee4c27602ea38a5306c67291dfccaa67ea4d8a4979",
+      "scripts/evaluate_baselines.py": "88da47e74dbba057a40c509fcca883abebe1fef7699aba846416baf2ed0f81b4",
+      "scripts/run_backtesting.py": "850ec2852055fb4971dfc3154e1a233742546aca962df73ce176734e663086f7",
+      "scripts/run_cycle2_calendar.py": "cab666265642c6745bf6e6fecab5ae42ccba1f618e21e204e203fb61846bdf2e",
+      "scripts/run_ml_validation.py": "a369e96a142fd0cf036060f8dc31b0b1ebe480d0069f874acf86edbfe593bd3c",
+      "scripts/sample_m5.py": "90760d38e4185d55b2f6cf9041bb2bcd49c35d1536e6aa617ddd4227d2bd4fab",
+      "scripts/train_ml_model.py": "da5470c6729e693b58121b848e0659f87c29b40a9a618b7cecab72fcc02a6735",
+      "scripts/verify_parquet.py": "d11f19910c6db19f3b868c8a2226912d35cc4340b36cc5ba991f0a203a284791"
+    },
+    "python": "3.13.1",
+    "platform": "macOS-15.0.1-arm64-arm-64bit-Mach-O",
+    "dependencies": {
+      "lightgbm": "4.7.0",
+      "pandas": "3.0.6",
+      "numpy": "2.5.3",
+      "pyarrow": "26.0.0",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.18.1"
+    },
+    "inputs": {
+      "sales": {
+        "path": "data/processed/sales.parquet",
+        "sha256": "76d327c8d6fd13a7b1f98fc598fa7ae341f2148b2171a83f1b5868dca24b852b"
+      },
+      "metadata": {
+        "path": "data/processed/series.parquet",
+        "sha256": "63122912c8ebfe32213e80deb770166de11717a633c82f927c4e3c0490c85f82"
+      },
+      "calendar": {
+        "path": "data/raw/calendar.csv",
+        "sha256": "d12b5914ef03e66649adf5dd9e996e6602251c22b7a6af8f1f7e3aa12f8860f5"
+      },
+      "sample_manifest": {
+        "path": "/Users/alik/Desktop/supplypilot-ai/reports/sample_series.csv",
+        "sha256": "c36ccd3576cc3d1c098ca8262f6ff7ee127d341da71c50d2cb701dae9c83233f"
+      }
+    },
+    "independent_reproduction_verified_against": "reports/cycle2_calendar/first_run"
+  },
+  "datasets": {
+    "cycle2_tweedie_8_origins_calendar": {
+      "training_rows": 668808,
+      "training_series": 2989,
+      "training_origins": [
+        "2015-08-23",
+        "2015-08-30",
+        "2015-09-06",
+        "2015-09-13",
+        "2015-09-20",
+        "2015-09-27",
+        "2015-10-04",
+        "2015-10-11"
+      ],
+      "category_levels": {
+        "store_id": [
+          "CA_1",
+          "CA_2",
+          "CA_3",
+          "CA_4",
+          "TX_1",
+          "TX_2",
+          "TX_3",
+          "WI_1",
+          "WI_2",
+          "WI_3"
+        ],
+        "dept_id": [
+          "FOODS_1",
+          "FOODS_2",
+          "FOODS_3",
+          "HOBBIES_1",
+          "HOBBIES_2",
+          "HOUSEHOLD_1",
+          "HOUSEHOLD_2"
+        ],
+        "cat_id": [
+          "FOODS",
+          "HOBBIES",
+          "HOUSEHOLD"
+        ],
+        "target_event_type_1": [
+          "Cultural",
+          "National",
+          "None",
+          "Religious"
+        ],
+        "target_event_type_2": [
+          "None"
+        ]
+      }
+    },
+    "cycle2_tweedie_16_origins_calendar": {
+      "training_rows": 1336692,
+      "training_series": 2989,
+      "training_origins": [
+        "2015-06-28",
+        "2015-07-05",
+        "2015-07-12",
+        "2015-07-19",
+        "2015-07-26",
+        "2015-08-02",
+        "2015-08-09",
+        "2015-08-16",
+        "2015-08-23",
+        "2015-08-30",
+        "2015-09-06",
+        "2015-09-13",
+        "2015-09-20",
+        "2015-09-27",
+        "2015-10-04",
+        "2015-10-11"
+      ],
+      "category_levels": {
+        "store_id": [
+          "CA_1",
+          "CA_2",
+          "CA_3",
+          "CA_4",
+          "TX_1",
+          "TX_2",
+          "TX_3",
+          "WI_1",
+          "WI_2",
+          "WI_3"
+        ],
+        "dept_id": [
+          "FOODS_1",
+          "FOODS_2",
+          "FOODS_3",
+          "HOBBIES_1",
+          "HOBBIES_2",
+          "HOUSEHOLD_1",
+          "HOUSEHOLD_2"
+        ],
+        "cat_id": [
+          "FOODS",
+          "HOBBIES",
+          "HOUSEHOLD"
+        ],
+        "target_event_type_1": [
+          "Cultural",
+          "National",
+          "None",
+          "Religious"
+        ],
+        "target_event_type_2": [
+          "None"
+        ]
+      }
+    }
+  },
+  "near_tree_cap_candidates": []
+}

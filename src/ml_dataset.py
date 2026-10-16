@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from src.backtesting import build_sales_matrix
+from src.calendar_features import attach_calendar_features
 from src.forecast_baselines import FORECAST_HORIZON
 from src.ml_features import DEMAND_FEATURE_NAMES, MIN_HISTORY, demand_features
 
@@ -73,12 +74,16 @@ def build_ml_training_dataset(
     metadata: pd.DataFrame,
     training_cutoff,
     n_origins: int = 8,
+    *,
+    calendar: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Generate daily 1..28-horizon targets and origin-safe historical features.
 
     Only series with 28 continuous observed history days at each origin are
     eligible at that origin. Missing future targets for any eligible series
     cause an error rather than silently changing the evaluation population.
+    Passing calendar opts into the seven Cycle 2 target-date features; its
+    scheduled events and SNAP indicators are assumed known at each origin.
     """
     origins = select_training_origins(training_cutoff, n_origins)
     cutoff = _calendar_date(training_cutoff, "Training cutoff")
@@ -167,5 +172,8 @@ def build_ml_training_dataset(
 
     if (output["date"] > cutoff).any():
         raise ValueError("Training target date exceeds training cutoff")
+
+    if calendar is not None:
+        output = attach_calendar_features(output, calendar, metadata)
 
     return output
