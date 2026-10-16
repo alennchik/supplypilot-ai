@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from src.backtesting import build_sales_matrix
+from src.calendar_features import attach_calendar_features
 from src.forecast_baselines import FORECAST_HORIZON
 from src.ml_dataset import METADATA_COLUMNS, _calendar_date, _metadata_by_series
 from src.ml_features import DEMAND_FEATURE_NAMES, MIN_HISTORY, demand_features
@@ -14,6 +15,8 @@ def build_ml_inference_examples(
     sales: pd.DataFrame,
     metadata: pd.DataFrame,
     origin,
+    *,
+    calendar: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Create prediction rows using only sales available through origin.
 
@@ -22,6 +25,8 @@ def build_ml_inference_examples(
 
     Future sales are never included in the historical demand features.
     Future target values are not needed or generated.
+    With calendar, only scheduled future-known events and SNAP are added,
+    at target date rather than origin date. Cycle 2 origins must be Sunday.
     """
     forecast_origin = _calendar_date(origin, "Forecast origin")
 
@@ -101,6 +106,9 @@ def build_ml_inference_examples(
     if examples.duplicated(["series_id", "origin", "horizon"]).any():
         raise ValueError("Duplicate inference example keys")
 
+    if calendar is not None:
+        examples = attach_calendar_features(examples, calendar, metadata)
+
     return examples
 
 
@@ -109,12 +117,15 @@ def predict_at_origin(
     sales: pd.DataFrame,
     metadata: pd.DataFrame,
     origin,
+    *,
+    calendar: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Generate 28 nonnegative forecasts per eligible product-store series."""
     examples = build_ml_inference_examples(
         sales=sales,
         metadata=metadata,
         origin=origin,
+        calendar=calendar,
     )
 
     return predict_global_model(model, examples)

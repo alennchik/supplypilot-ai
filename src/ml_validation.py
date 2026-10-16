@@ -110,11 +110,15 @@ def build_validation_actuals(sales: pd.DataFrame) -> pd.DataFrame:
 def build_validation_feature_sets(
     sales: pd.DataFrame,
     metadata: pd.DataFrame,
+    *,
+    calendar: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build V1 and V2 supervised examples for one fixed cohort.
 
     Historical features come from the corresponding forecast origin.
     Actual targets are joined only after features have been generated.
+    The optional calendar adds only the seven scheduled target-date Cycle 2
+    predictors and preserves the frozen Cycle 1 population and windows.
     """
     actuals = build_validation_actuals(sales)
 
@@ -129,10 +133,13 @@ def build_validation_feature_sets(
     frames = []
 
     for window in validation_windows():
+        # Preserve the original no-calendar call contract for Cycle 1.
+        calendar_kwargs = {} if calendar is None else {"calendar": calendar}
         examples = build_ml_inference_examples(
             sales=sales,
             metadata=metadata,
             origin=window.origin,
+            **calendar_kwargs,
         )
 
         # Freeze the evaluation population at the V1 origin.
