@@ -1,0 +1,3 @@
+candidate,objective,n_origins,best_iteration,v2_wape,v2_mae,v2_rmse,v1_best_mae,fit_seconds,training_rows,training_series,near_tree_cap
+cycle2_tweedie_8_origins_calendar,tweedie,8,1743,79.85575245261907,0.9709352254612036,2.4600175596603613,0.9570926654053971,80.95337008265778,668808,2989,False
+cycle2_tweedie_16_origins_calendar,tweedie,16,990,80.14521163042673,0.9744546477123839,2.4396772832051687,0.9649050594880227,94.03405449958518,1336692,2989,False
