@@ -6,7 +6,7 @@
 
 SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and, in later phases, supporting data-driven inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
 
-**Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE. **LightGBM has not yet been evaluated on the later four-window final-test benchmark.** Inventory optimization, end-to-end inference from new raw sales files, and the dashboard remain future work.
+**Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE. **The frozen final-evaluation implementation is available, with synthetic verification; real-data preflight and final ML scoring remain unrun.** Inventory optimization, end-to-end inference from new raw sales files, and the dashboard remain future work.
 
 ## Highlights
 
@@ -468,7 +468,7 @@ python -m scripts.train_ml_model
 
 The training script validates the `(series_id, origin, horizon)` keys, 28-day paths, target dates, and cutoff; loads the saved model and checks the same complete 28-day prediction path against the in-memory model. Tests cover saved-schema compatibility, invalid targets/horizons, unseen categories, feature inclusion and exclusion, duplicates, incomplete paths, and saved-model reload. The output files are written directly and **are not a multi-file atomic transaction**.
 
-**Still not implemented:** automated end-to-end inference from arbitrary new raw sales files and the frozen four-window **final ML benchmark**. The calendar-aware second-cycle experiments and independent reproduction are complete on the fixed sampled cohort. The Phase 1 four-window WAPE numbers apply **only to the three baseline models**; they are not directly comparable with the separate V2 LightGBM validation results below.
+**Still not implemented:** automated end-to-end inference from arbitrary new raw sales files. The frozen four-window **final ML benchmark runner is implemented**, but real-data preflight and scoring remain pending. The calendar-aware second-cycle experiments and independent reproduction are complete on the fixed sampled cohort. The Phase 1 four-window WAPE numbers apply **only to the three baseline models**; they are not directly comparable with the separate V2 LightGBM validation results below.
 
 ## Preregistered V1/V2 LightGBM Validation
 
@@ -762,6 +762,84 @@ Run the legacy experiment with:
 python -m scripts.evaluate_baselines
 ```
 
+## Frozen final ML benchmark — Issue #28
+
+[Issue #28](https://github.com/alennchik/supplypilot-ai/issues/28) freezes the final protocol. The implementation and synthetic tests are available in `src/ml_final_evaluation.py`, `scripts/run_ml_final_evaluation.py`, and the two corresponding test modules. **No real M5 final training, preflight, or accuracy reveal was executed while implementing this work. There are no final ML findings to report yet.** Phase 2 remains in progress until the reviewed implementation is committed, the authorized final run is published regardless of outcome, and the final evaluation PR is merged.
+
+### Frozen methodology
+
+The runner fits one global direct 28-day Tweedie model with variance power 1.5, **exactly 1,743 realized trees**, learning rate 0.05, 31 leaves, minimum 20 child samples, seed 42, two CPU threads, deterministic training and forced column-wise training. It supplies **no validation set and no early stopping**. A model that realizes fewer trees fails rather than silently relaxing the requirement. It reuses the existing 25-feature Cycle 2 schema, training-only categorical vocabularies, unseen-category-as-missing policy, and nonnegative prediction clipping.
+
+Training labels end on **January 3, 2016 (`d_1801`)**. The eight weekly origins are October 18 (`d_1724`), October 25 (`d_1731`), November 1 (`d_1738`), November 8 (`d_1745`), November 15 (`d_1752`), November 22 (`d_1759`), November 29 (`d_1766`), and December 6 (`d_1773`), 2015. Training eligibility remains origin-relative and need not equal the final cohort.
+
+The fitted model is reused without weight updates at origins **January 3, January 31, February 28, and March 27, 2016**, forecasting January 4–31, February 1–28, February 29–March 27, and March 28–April 24, respectively. Historical sales are truncated to each origin before features are built. Completed earlier windows may contribute to later history; sales inside the current forecast window cannot. Scheduled target-date events, dates, and state SNAP are treated as known; observed future prices are excluded.
+
+The **2,996-series Phase 1 cohort** is selected once using 28 consecutive observed days through January 3, and retained in every window. Each method must contain **335,552** complete daily observations, giving **1,342,208** predictions across ML, `moving_average_28`, `seasonal_naive`, and `naive`. Before fitting, the runner independently recomputes forecasts with the unchanged Phase 1 implementations and requires exact agreement with the supplied baseline predictions; matching method names and finite values alone are insufficient. This forecast comparison calculates no accuracy metrics. It rejects missing series, duplicate keys, invalid dates/horizons, missing actuals, unequal actuals, and nonfinite or negative predictions. Alignment is exact on `(series_id, origin, date, horizon, actual)`. Metadata is matched to each cutoff-truncated history so a sampled series first observed later does not invalidate training. Later entrants remain outside the fixed final cohort; eligible test series are never silently removed.
+
+### Review, blind preflight, then explicit reveal
+
+The following commands document a later, explicitly authorized real-data workflow; they were **not run during implementation**. Review and commit this implementation personally before beginning. Running the module without an action prints only the protocol and reads no data:
+
+```bash
+python -m scripts.run_ml_final_evaluation
+```
+
+After freezing the implementation, the explicit blind action trains once, creates forecasts, and checks structure without computing, printing, or saving accuracy metrics, residuals, actual totals, or prediction-versus-actual examples:
+
+```bash
+python -m scripts.run_ml_final_evaluation --preflight
+```
+
+Default inputs are `data/processed/sales.parquet`, `data/processed/series.parquet`, `data/raw/calendar.csv`, and the unchanged `data/processed/m5_backtest_predictions.parquet`. Use `--sales`, `--metadata`, `--calendar`, and `--baselines` to specify paths. Missing or substituted baseline predictions fail explicitly; this command does not run the Phase 1 accuracy/reporting pipeline. The frozen sample manifest and Cycle 2 adoption record are validated. An atomic, exclusive `reports/ml_final_evaluation/primary_reserved.json` reservation protects the entire frozen primary experiment, including concurrent commands with different destinations. It remains in place after failure; changing paths or restarting a process cannot start another primary run automatically.
+
+Only after reviewing the structural pass, invoke the separate reveal:
+
+```bash
+python -m scripts.run_ml_final_evaluation --reveal
+```
+
+Reveal loads **existing prediction and grouping artifacts**, verifies their hashes and matching preflight manifests, checks unchanged sources, code revision, dependency versions, and input hashes, and scores without fitting or loading a model for prediction. Primary and reproduction reservations bind each run to one canonical report directory and artifact directory; copied manifests cannot authorize scoring, another reproduction, or publication from a different directory. Prediction and lookup Parquet files are copied in bounded 1 MiB chunks to private temporary snapshots, hashed, and parsed through those same snapshot handles. Replacing a source file after verification cannot substitute the bytes scored. Snapshots are processed one artifact at a time and require temporary disk space rather than an additional full-file RAM buffer. Do not edit source, README, tests, dependencies, inputs, or commit another revision between preflight and reveal. Dirty status is recorded honestly alongside source hashes; the intended real-data workflow starts from the user's reviewed commit.
+
+| Location | Contents | Commit? |
+|---|---|---|
+| `reports/ml_final_evaluation/primary/preflight.json` | Frozen protocol, structural checks, cohort/observation/input/source/artifact hashes, revision, dirty status, dependencies, runtime, cumulative peak RSS, limitations | Yes, after authorized execution |
+| `data/processed/ml_final_evaluation/primary/` | Preserved model, training vocabulary, daily predictions with labels, frozen category/demand-group lookup, matching manifest; after reveal, complete scored reports and checksums in `scored_result/` | No; ignored local artifacts |
+| `reports/ml_final_evaluation/primary/reveal/` | Overall and four diagnostic CSVs plus reveal manifest | Yes, after authorized execution |
+
+Reports are confined to `reports/ml_final_evaluation/`; binaries and per-row artifacts are confined to ignored `data/processed/ml_final_evaluation/`. Fresh run subdirectories are required and existing files are never overwritten. Complete directories are published only after their writes succeed. Artifact and report publication are separate operations: if the final preflight report write fails, orphaned local artifacts may remain, but cannot be revealed without a matching success manifest. Record and resolve any pre-reveal failure before proceeding. Primary reservations and reveal-start markers are not automatically released after failure; preserve them for an explicit audit rather than starting another experiment under a new path.
+
+Reveal calculates accuracy once, persists all five scored CSVs and their manifest in ignored `scored_result/` storage, flushes files and directories to disk, and records integrity hashes in `score_completed.json` before public report publication. A transient publication failure retains this complete scored result and the failure disclosure. After resolving the write problem, recover with:
+
+```bash
+python -m scripts.run_ml_final_evaluation --publish-only \
+  --output-dir reports/ml_final_evaluation/primary
+```
+
+This action verifies the frozen preflight inputs and the sealed report bytes, then publishes those exact bytes. It does not load prediction tables, retrain, or recalculate accuracy. It refuses modified or incomplete results and another publication after success. The original reveal-start marker and failure record remain intact. If failure occurs **before the complete scored result and integrity seal are durable**, publication-only recovery refuses to proceed; scoring is never automatically repeated. Such a failure requires an explicit audit and disclosed recovery decision. Disclose any later correction; do not erase failure markers to claim a new primary evaluation.
+
+At most **one independent identical verification attempt** is supported. It refits once under the same protocol and requires exact input/source/configuration/cohort and artifact agreement. Reserve it explicitly against the primary run, using fresh destinations:
+
+```bash
+python -m scripts.run_ml_final_evaluation --preflight \
+  --verify-against reports/ml_final_evaluation/primary \
+  --output-dir reports/ml_final_evaluation/reproduction \
+  --artifacts-dir data/processed/ml_final_evaluation/reproduction
+python -m scripts.run_ml_final_evaluation --reveal \
+  --output-dir reports/ml_final_evaluation/reproduction
+```
+
+The primary reveal must precede the reproduction reveal; all five metric tables must match exactly. The verification reservation is exclusive, including failed attempts. Do not use verification to make outcome-dependent changes.
+
+### Metrics, diagnostics, and preregistered limitations
+
+The primary metric is **daily pooled WAPE (%)**: `100 * sum(abs(actual - predicted)) / sum(actual)`. Weekly WAPE first sums within `(series_id, origin, horizon_week)`; 28-day WAPE first sums within `(series_id, origin)`. Weekly buckets are horizons 1–7, 8–14, 15–21, and 22–28. Ratios are pooled across observations rather than averaging series percentages. Zero actual totals produce undefined WAPE (blank CSV values), never a fabricated zero. Daily MAE/RMSE accompany series counts, observation counts, and actual totals.
+
+Reveal publishes `overall.csv`, `by_window.csv`, `by_category.csv`, `by_demand_group.csv`, and `by_horizon_week.csv` for all four methods on identical rows. Demand groups reuse the Phase 1 function and at most 365 observed historical days through January 3: frequent below 25% zero days, mixed from 25% through 75% inclusive, sparse above 75%. The horizon-week report includes daily and weekly WAPE and omits `day28_wape`: a seven-day slice cannot supply a complete 28-day metric. Overall, window, category, and demand-group reports retain the original complete 28-day WAPE definition.
+
+Training targets span **October 19, 2015–January 3, 2016**. Test months 2, 3, and 4 and possibly event categories were unseen during fitting. Trees do not automatically extrapolate a smooth month effect; unfamiliar categorical event values encode as missing. This preregistered limitation cannot trigger retuning. Phase 1 already exposed baseline results on these dates, so this is a **frozen final ML benchmark**, not an untouched holdout across project history. Cycle 2 reused V2, allowing selection optimism; the adoption rule is not a statistical significance test. WAPE measures forecast error, not classification accuracy, inventory savings, service levels, or production readiness.
+
+After the final outcome is published and Phase 2 is concluded, specify Phase 3 inventory simulation separately: on-hand inventory, lead times, holding costs, and shortage penalties must be explicit. Compare inventory outcomes under frozen forecasting methods before claiming business impact.
+
 ## Exploratory Data Analysis
 
 ### Daily sales trends
@@ -812,7 +890,8 @@ python -m scripts.evaluate_baselines
 - [x] Save all-candidate error metrics, V1 learning curves, resource usage, MA28 diagnostics, and reproduce all nine scores and best iterations in a second run.
 - [x] Preregister and implement Calendar-Aware Cycle 2 with seven predictors, two Tweedie candidates, aggregated metrics, automatic adoption rules, and separate reports.
 - [x] Run both Cycle 2 candidates on the fixed sampled cohort, independently reproduce their scores and best iterations, and document the adoption decision without rewriting first-cycle reports.
-- [ ] Compare a finalized ML model with the frozen Phase 1 baselines on the same final-test protocol.
+- [x] Implement Issue #28 frozen final-model training, blind structural preflight, artifact-only metrics reveal, and synthetic tests.
+- [ ] Review and commit the implementation, run the blind real-data preflight, then explicitly reveal the final comparison with frozen Phase 1 baselines.
 - [ ] Analyze forecast limitations and uncertainty without tuning to test results.
 
 ### Planned — Phase 3: Inventory optimization
