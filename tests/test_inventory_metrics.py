@@ -427,3 +427,13 @@ def test_value_proxy_is_the_median_available_price():
 def test_value_proxy_stops_instead_of_dropping_series(prices, message):
     with pytest.raises(ValueError, match=message):
         value_proxy_from_prices(prices)
+
+
+def test_value_proxy_names_series_without_a_price():
+    prices = [[1.0, 2.0], [np.nan, np.nan]]
+
+    with pytest.raises(ValueError, match=r"series: \['TX_2_item'\]"):
+        value_proxy_from_prices(prices, series_ids=["CA_1_item", "TX_2_item"])
+
+    with pytest.raises(ValueError, match="one entry per price row"):
+        value_proxy_from_prices(prices, series_ids=["only_one"])

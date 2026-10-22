@@ -13,6 +13,7 @@ from src.inventory_inputs import (
     ISSUE28_ARTIFACTS,
     ISSUE28_ORIGINS,
     MA28_MODEL,
+    PUBLISHED_REVEAL_MANIFEST,
     REVIEW_ORIGINS,
     check_paths_match,
     cohort_sha256,
@@ -66,40 +67,102 @@ def test_cohort_hash_uses_the_issue28_canonical_form():
     assert cohort_sha256(["a", "b", "c"]) == expected
 
 
-@pytest.fixture
-def artifacts(tmp_path):
+def write_artifact_set(folder, label):
+    """A self-consistent artifact set: files plus a preflight.json with their hashes."""
+    folder.mkdir(parents=True, exist_ok=True)
+
     for name in ISSUE28_ARTIFACTS:
-        (tmp_path / name).write_bytes(f"content of {name}".encode())
+        (folder / name).write_bytes(f"{label}: content of {name}".encode())
 
     manifest = {
-        "artifact_sha256": {
-            name: file_sha256(tmp_path / name) for name in ISSUE28_ARTIFACTS
-        },
+        "artifact_sha256": {name: file_sha256(folder / name) for name in ISSUE28_ARTIFACTS},
         "cohort_sha256": cohort_sha256(SERIES),
         "execution": {"inputs": {}},
     }
-    (tmp_path / "preflight.json").write_text(json.dumps(manifest))
-    return tmp_path
+    (folder / "preflight.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    return folder
 
 
-def test_artifacts_with_recorded_hashes_are_accepted(artifacts):
-    manifest = verify_issue28_artifacts(artifacts)
+def write_published_record(path, artifact_folder):
+    """The committed reveal manifest that anchors one specific run."""
+    path.write_text(
+        json.dumps(
+            {
+                "preflight_sha256": file_sha256(artifact_folder / "preflight.json"),
+                "prediction_sha256": file_sha256(artifact_folder / "predictions.parquet"),
+            }
+        )
+    )
+    return path
+
+
+@pytest.fixture
+def artifacts(tmp_path):
+    folder = write_artifact_set(tmp_path / "primary", "original run")
+    published = write_published_record(tmp_path / "published.json", folder)
+    return folder, published
+
+
+def test_artifacts_traced_to_the_published_record_are_accepted(artifacts):
+    folder, published = artifacts
+
+    manifest = verify_issue28_artifacts(folder, published)
 
     assert set(manifest["artifact_sha256"]) == set(ISSUE28_ARTIFACTS)
 
 
+def test_a_different_self_consistent_artifact_set_is_rejected(artifacts, tmp_path):
+    _, published = artifacts
+    other = write_artifact_set(tmp_path / "other", "another run")
+
+    with pytest.raises(ValueError, match="not the one behind the published"):
+        verify_issue28_artifacts(other, published)
+
+
+def test_a_preflight_whose_prediction_hash_differs_from_the_published_one_is_rejected(
+    artifacts,
+):
+    folder, published = artifacts
+    record = json.loads(published.read_text())
+    record["prediction_sha256"] = "0" * 64
+    published.write_text(json.dumps(record))
+
+    with pytest.raises(ValueError, match="prediction hash differs"):
+        verify_issue28_artifacts(folder, published)
+
+
+def test_a_missing_published_record_is_rejected(artifacts, tmp_path):
+    folder, _ = artifacts
+
+    with pytest.raises(ValueError, match="Missing published"):
+        verify_issue28_artifacts(folder, tmp_path / "absent.json")
+
+
 def test_a_changed_artifact_is_rejected(artifacts):
-    (artifacts / "model.txt").write_bytes(b"retrained")
+    folder, published = artifacts
+    (folder / "model.txt").write_bytes(b"retrained")
 
     with pytest.raises(ValueError, match="artifact changed: model.txt"):
-        verify_issue28_artifacts(artifacts)
+        verify_issue28_artifacts(folder, published)
 
 
 def test_a_missing_artifact_is_rejected(artifacts):
-    (artifacts / "lookups.parquet").unlink()
+    folder, published = artifacts
+    (folder / "lookups.parquet").unlink()
 
     with pytest.raises(ValueError, match="Missing Issue #28 artifact"):
-        verify_issue28_artifacts(artifacts)
+        verify_issue28_artifacts(folder, published)
+
+
+def test_the_committed_published_record_anchors_the_chain():
+    record = json.loads(PUBLISHED_REVEAL_MANIFEST.read_text())
+
+    assert record["preflight_sha256"] == (
+        "1c3bafd437e173042650065c20b4054d33163d97372413c21338e5c993783371"
+    )
+    assert record["prediction_sha256"] == (
+        "5b5317ef50bf2fcde8e635ac4380cf4f12d164c37b21e409d714cb2254ee0211"
+    )
 
 
 def test_input_files_must_match_recorded_hashes(tmp_path):
@@ -241,6 +304,14 @@ def test_check_paths_match_enforces_the_tolerance():
         check_paths_match(np.ones((2, 3, 28)), reference, tolerance=1e-9, label="x")
 
 
+@pytest.mark.parametrize("tolerance", [np.nan, -1e-9, np.inf])
+def test_check_paths_match_rejects_an_invalid_tolerance(tolerance):
+    reference = np.ones((2, 4, 28))
+
+    with pytest.raises(ValueError, match="Tolerance"):
+        check_paths_match(reference + 100, reference, tolerance=tolerance, label="x")
+
+
 def test_value_proxies_use_the_median_available_price(sales):
     window = pd.date_range(end=FIRST_REVIEW, periods=28)
     data = sales.copy()
@@ -260,5 +331,5 @@ def test_value_proxies_stop_when_a_series_has_no_price(sales):
     data = sales.copy()
     data.loc[(data.series_id == "WI_house") & data.date.isin(window), "price"] = np.nan
 
-    with pytest.raises(ValueError, match="No available price"):
+    with pytest.raises(ValueError, match=r"No available price for series: \['WI_house'\]"):
         value_proxies(data, SERIES)

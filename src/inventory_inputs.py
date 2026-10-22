@@ -21,6 +21,13 @@ from src.forecast_baselines import (
 )
 from src.inventory_metrics import value_proxy_from_prices
 
+ROOT = Path(__file__).resolve().parents[1]
+# Committed record of the published Issue #28 results: the anchor of the chain
+# published result -> original preflight.json -> model, cohort, data hashes.
+PUBLISHED_REVEAL_MANIFEST = (
+    ROOT / "reports/ml_final_evaluation/primary/reveal/manifest.json"
+)
+
 FIRST_REVIEW = pd.Timestamp("2016-01-03")
 LAST_SIMULATED_DAY = pd.Timestamp("2016-04-24")
 REVIEW_PERIOD_DAYS = 7
@@ -62,16 +69,44 @@ def cohort_sha256(series_ids) -> str:
     return hashlib.sha256(canonical.to_csv(index=False).encode()).hexdigest()
 
 
-def verify_issue28_artifacts(artifacts_dir) -> dict:
-    """Check the saved Issue #28 artifacts against their recorded hashes."""
+def verify_issue28_artifacts(
+    artifacts_dir,
+    published_manifest=PUBLISHED_REVEAL_MANIFEST,
+) -> dict:
+    """Check the saved Issue #28 artifacts back to the published results.
+
+    The local preflight.json must be byte-identical to the one whose hash the
+    committed reveal manifest records, and predictions.parquet must match the
+    published prediction hash. Only then are the other artifact hashes in that
+    preflight trusted. A different set of files with its own consistent
+    preflight.json is rejected.
+    """
     folder = Path(artifacts_dir)
     manifest_path = folder / "preflight.json"
+    published_path = Path(published_manifest)
+
+    if not published_path.is_file():
+        raise ValueError(f"Missing published Issue #28 manifest: {published_path}")
+
+    published = json.loads(published_path.read_text(encoding="utf-8"))
+
+    for key in ("preflight_sha256", "prediction_sha256"):
+        if not isinstance(published.get(key), str) or len(published[key]) != 64:
+            raise ValueError(f"Published Issue #28 manifest lacks {key}")
 
     if not manifest_path.is_file():
         raise ValueError(f"Missing Issue #28 preflight manifest: {manifest_path}")
 
+    if file_sha256(manifest_path) != published["preflight_sha256"]:
+        raise ValueError(
+            "Local preflight.json is not the one behind the published Issue #28 results"
+        )
+
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     recorded = manifest.get("artifact_sha256", {})
+
+    if recorded.get("predictions.parquet") != published["prediction_sha256"]:
+        raise ValueError("Preflight prediction hash differs from the published one")
 
     for name in ISSUE28_ARTIFACTS:
         path = folder / name
@@ -218,6 +253,9 @@ def check_paths_match(paths, reference, *, tolerance: float, label: str) -> floa
     a = np.asarray(paths, dtype=float)
     b = np.asarray(reference, dtype=float)
 
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("Tolerance must be finite and nonnegative")
+
     if a.shape != b.shape:
         raise ValueError(f"{label}: shapes differ {a.shape} vs {b.shape}")
 
@@ -249,10 +287,11 @@ def value_proxies(sales: pd.DataFrame, cohort, as_of=FIRST_REVIEW) -> np.ndarray
     if "price_available" in data.columns:
         data.loc[~data["price_available"].astype(bool), "price"] = np.nan
 
+    cohort = pd.Index(cohort)
     prices = (
         data.pivot(index="series_id", columns="date", values="price")
-        .reindex(index=pd.Index(cohort), columns=dates)
+        .reindex(index=cohort, columns=dates)
         .to_numpy(dtype=float)
     )
 
-    return value_proxy_from_prices(prices)
+    return value_proxy_from_prices(prices, series_ids=cohort)
