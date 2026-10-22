@@ -1,14 +1,11 @@
 # Phase 3 inventory simulation protocol
 
-**Status: DRAFT v0.3 (revised after two reviews). Not frozen.**
+**Status: FROZEN v1.0 (2026-10-22).** The maintainer confirmed all eight decisions in Section 15 on [Issue #31](https://github.com/alennchik/supplypilot-ai/issues/31) on 2026-10-22. Version 1.0 is the reviewed DRAFT v0.3, with no change to its content.
 
-To freeze it, the maintainer:
+From this point:
 
-1. confirms the decisions in Section 15 on the Phase 3A issue (#31);
-2. adds a separate commit that changes this status line to `FROZEN v1.0`, with the date and a link to the confirmation;
-3. merges that commit.
-
-No inventory metric may be computed on real M5 data before that merge. Any later change gets a new version number and is disclosed in the final report.
+- inventory metrics on real M5 data are computed only under this version;
+- any change gets a new version number, is recorded below, and is disclosed in the final report.
 
 ## 1. Research question
 
@@ -199,7 +196,9 @@ If any check fails, the run stops without writing results.
 | 3C | Weekly LightGBM/MA28/reference protection forecasts and the Section 12 checks | Model artifacts + data |
 | 3D | `scripts/run_inventory_simulation.py` and reports in `reports/phase3_inventory/`, never overwriting existing results | Model artifacts + data |
 
-## 15. Decisions for the maintainer to confirm before freezing
+## 15. Decisions confirmed at freeze
+
+All eight were confirmed by the maintainer on Issue #31 on 2026-10-22.
 
 1. `ceil` ordering as primary, with round-half-up only as a robustness check.
 2. `S = F + z·sqrt(F)` with `z` from 0 to 3.0 in steps of 0.1 (31 values).
@@ -209,6 +208,10 @@ If any check fails, the run stops without writing results.
 6. Paired item-cluster percentile bootstrap: 2,000 resamples, seed 42. Equivalence is claimed only if the whole interval is inside ±2%.
 7. Inclusion of the perfect-foresight policy reference, with the conditions in Section 7.
 8. Value proxy and illustrative cost as defined in Section 10 (25% per year holding; penalty 0.25, 0.5 or 1.0 times the value proxy).
+
+## v1.0 (frozen, 2026-10-22)
+
+- No content change from v0.3. The status is set to FROZEN after the maintainer confirmed Section 15 on Issue #31.
 
 ## Changes from v0.2
 
