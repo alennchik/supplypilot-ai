@@ -118,6 +118,40 @@ def test_summary_applies_the_starting_state_rule(better_lightgbm):
     assert isinstance(summary["rounding_check_agrees"], bool)
 
 
+def test_summary_carries_one_unambiguous_conclusion(better_lightgbm):
+    conclusion = better_lightgbm["summary"]["conclusion"]
+
+    assert conclusion["code"] == "a_needs_less_inventory"
+    assert conclusion["statement"].startswith("LightGBM needs less inventory")
+
+
+def _summary(primary, empty, half_up="practically_equivalent"):
+    return {
+        "primary": {"verdict": primary},
+        "sensitivity": {"empty_start": {"verdict": empty}, "half_up": {"verdict": half_up}},
+        "starting_state_dependent": primary != empty,
+    }
+
+
+def test_a_starting_state_dependence_overrides_the_primary_verdict():
+    conclusion = experiment.overall_conclusion(
+        _summary("a_needs_less_inventory", "inconclusive")
+    )
+
+    assert conclusion["code"] == "depends_on_starting_state"
+    assert "No robust advantage" in conclusion["statement"]
+    assert conclusion["primary_verdict"] == "a_needs_less_inventory"
+    assert conclusion["empty_start_verdict"] == "inconclusive"
+
+
+@pytest.mark.parametrize("verdict", sorted(experiment.STATEMENTS))
+def test_every_verdict_has_a_plain_statement(verdict):
+    conclusion = experiment.overall_conclusion(_summary(verdict, verdict))
+
+    assert conclusion["code"] == verdict
+    assert conclusion["statement"] == experiment.STATEMENTS[verdict]
+
+
 def test_group_breakdowns_cover_every_group(better_lightgbm):
     group_endpoints = better_lightgbm["group_endpoints"]
     group_curves = better_lightgbm["group_curves"]

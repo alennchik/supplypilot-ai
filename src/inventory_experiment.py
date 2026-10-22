@@ -54,6 +54,58 @@ BOOTSTRAP = {
 }
 HOLDING_RATE_PER_YEAR = 0.25
 PENALTY_FRACTIONS = (0.25, 0.5, 1.0)
+STATEMENTS = {
+    "a_needs_less_inventory": (
+        "LightGBM needs less inventory than MA28 for a 95% fill rate at L = 7: "
+        "the whole 95% interval is below zero and not entirely inside ±2%."
+    ),
+    "b_needs_less_inventory": (
+        "MA28 needs less inventory than LightGBM for a 95% fill rate at L = 7: "
+        "the whole 95% interval is above zero and not entirely inside ±2%."
+    ),
+    "practically_equivalent": (
+        "LightGBM and MA28 are practically equivalent at a 95% fill rate and "
+        "L = 7: the whole 95% interval is inside ±2%."
+    ),
+    "inconclusive": (
+        "No evidence of a difference at a 95% fill rate and L = 7: the 95% "
+        "interval includes zero and is not entirely inside ±2%."
+    ),
+    "unreliable": (
+        "No winner is declared: more than 1% of bootstrap resamples could not be "
+        "evaluated, so the interval is unreliable."
+    ),
+    "not_estimable": (
+        "The primary endpoint is not estimable: at least one method does not "
+        "bracket a 95% fill rate within the z grid."
+    ),
+}
+
+
+def overall_conclusion(summary: dict) -> dict:
+    """One unambiguous conclusion, applying the starting-state rule first."""
+    primary = summary["primary"]["verdict"]
+    empty = summary["sensitivity"]["empty_start"]["verdict"]
+    half_up = summary["sensitivity"]["half_up"]["verdict"]
+
+    if summary["starting_state_dependent"]:
+        code = "depends_on_starting_state"
+        statement = (
+            "The result depends on the starting state: the primary verdict is "
+            f"{primary} but the empty-start verdict is {empty}. No robust "
+            "advantage of either method is claimed."
+        )
+    else:
+        code = primary
+        statement = STATEMENTS[primary]
+
+    return {
+        "code": code,
+        "statement": statement,
+        "primary_verdict": primary,
+        "empty_start_verdict": empty,
+        "half_up_verdict": half_up,
+    }
 
 
 def protocol_parameters() -> dict:
@@ -244,6 +296,7 @@ def run_experiment(
         != primary_verdict,
         "rounding_check_agrees": bootstrap["half_up"]["verdict"] == primary_verdict,
     }
+    summary["conclusion"] = overall_conclusion(summary)
 
     return {
         "curves": curves,

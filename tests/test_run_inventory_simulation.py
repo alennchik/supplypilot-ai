@@ -22,6 +22,7 @@ from src.inventory_inputs import (
     cohort_sha256,
     file_sha256,
 )
+from src.inventory_publication import PUBLIC_REPORT, RESERVATION, RESULT_STORE
 from src.ml_model import save_global_model
 from tests.test_final_evaluation import make_synthetic_inputs
 from tests.test_inventory_ml_forecasts import calendar_through
@@ -92,99 +93,156 @@ def synthetic_issue28(tmp_path_factory):
     return root, data, artifacts, published
 
 
-def arguments(data, artifacts, output_dir):
+def arguments(data, artifacts):
     return Namespace(
         sales=data / "sales.parquet",
         metadata=data / "series.parquet",
         calendar=data / "calendar.csv",
         artifacts_dir=artifacts,
         phase1_predictions=data / "phase1.parquet",
-        output_dir=output_dir,
     )
 
 
-def test_checks_only_passes_every_check_and_writes_nothing(synthetic_issue28):
-    root, data, artifacts, published = synthetic_issue28
-    output = root / "reports" / "checks"
+def execute(synthetic_issue28, report_root, private_root, **overrides):
+    _, data, artifacts, published = synthetic_issue28
+    options = {
+        "published_manifest": published,
+        "report_root": report_root,
+        "private_root": private_root,
+        "n_resamples": 50,
+        "expected_series": 3,
+        **overrides,
+    }
+    return runner.run_execute(arguments(data, artifacts), **options)
+
+
+def test_checks_only_passes_every_check_and_computes_no_metric(synthetic_issue28):
+    _, data, artifacts, published = synthetic_issue28
 
     checks = runner.run_checks_only(
-        arguments(data, artifacts, output),
-        published_manifest=published,
-        expected_series=3,
+        arguments(data, artifacts), published_manifest=published, expected_series=3
     )
 
     assert checks["lightgbm_max_abs_difference_vs_issue28"] <= PREDICTION_TOLERANCE
     assert checks["ma28_max_abs_difference_vs_phase1"] == 0.0
     assert checks["cohort_series"] == 3
+    assert checks["files_read_from_verified_snapshots"] is True
     assert checks["inventory_metrics_computed"] is False
     assert len(checks["review_origins"]) == 16
-    assert not output.exists()
 
 
-def test_execute_publishes_complete_reports_exactly_once(synthetic_issue28):
-    root, data, artifacts, published = synthetic_issue28
-    report_root = root / "reports"
-    output = report_root / "primary"
-    args = arguments(data, artifacts, output)
+def test_execute_registers_seals_and_publishes_complete_reports(
+    synthetic_issue28, tmp_path
+):
+    report_root, private_root = tmp_path / "reports", tmp_path / "private"
 
-    destination, summary = runner.run_execute(
-        args,
-        published_manifest=published,
-        report_root=report_root,
-        n_resamples=50,
-        expected_series=3,
-    )
+    destination, summary = execute(synthetic_issue28, report_root, private_root)
 
-    assert destination == output.resolve()
+    assert destination == report_root / PUBLIC_REPORT
     for name in (*runner.REPORT_TABLES, "summary.json", "manifest.json"):
-        assert (output / name).is_file(), name
+        assert (destination / name).read_bytes() == (
+            private_root / RESULT_STORE / name
+        ).read_bytes()
+    assert (private_root / RESERVATION).is_file()
 
-    manifest = json.loads((output / "manifest.json").read_text())
+    manifest = json.loads((destination / "manifest.json").read_text())
     assert manifest["protocol"]["protocol_version"] == "1.0"
     assert manifest["checks"]["inventory_metrics_computed"] is True
+    assert set(manifest["provenance"]["artifact_sha256"]) == set(ISSUE28_ARTIFACTS)
+    assert manifest["reservation_sha256"] == file_sha256(private_root / RESERVATION)
     assert manifest["execution"]["runtime_seconds"] > 0
     assert all(
         not record["path"].startswith("/")
         for record in manifest["execution"]["inputs"].values()
     )
 
-    saved = json.loads((output / "summary.json").read_text())
-    assert saved["protocol_version"] == "1.0"
-    assert set(saved) >= {"primary", "sensitivity", "starting_state_dependent"}
+    saved = json.loads((destination / "summary.json").read_text())
+    assert saved["conclusion"]["code"] == summary["conclusion"]["code"]
+    assert saved["conclusion"]["statement"]
     assert summary["primary"]["n_resamples"] == 50
-
-    curves = pd.read_csv(output / "curves.csv")
-    assert len(curves) == 3 * 3 * 2 * 31
-
-    with pytest.raises(ValueError, match="never overwritten"):
-        runner.run_execute(
-            args,
-            published_manifest=published,
-            report_root=report_root,
-            n_resamples=50,
-            expected_series=3,
-        )
+    assert len(pd.read_csv(destination / "curves.csv")) == 3 * 3 * 2 * 31
 
 
-def test_a_changed_input_stops_the_run_before_any_report(synthetic_issue28, tmp_path):
+def test_a_second_run_is_refused_even_with_another_report_folder(
+    synthetic_issue28, tmp_path
+):
+    private_root = tmp_path / "private"
+    execute(synthetic_issue28, tmp_path / "reports", private_root)
+
+    with pytest.raises(ValueError, match="already registered"):
+        execute(synthetic_issue28, tmp_path / "other_reports", private_root)
+
+    assert not (tmp_path / "other_reports" / PUBLIC_REPORT).exists()
+
+
+def test_a_failed_experiment_keeps_its_registration(
+    synthetic_issue28, tmp_path, monkeypatch
+):
+    private_root = tmp_path / "private"
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("simulated crash during the experiment")
+
+    monkeypatch.setattr(runner, "run_experiment", crash)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        execute(synthetic_issue28, tmp_path / "reports", private_root)
+    monkeypatch.undo()
+
+    assert (private_root / RESERVATION).is_file()
+    assert not (private_root / RESULT_STORE).exists()
+    with pytest.raises(ValueError, match="already registered"):
+        execute(synthetic_issue28, tmp_path / "reports", private_root)
+
+
+def test_failed_publication_is_recovered_without_recomputing(
+    synthetic_issue28, tmp_path, monkeypatch
+):
+    report_root, private_root = tmp_path / "reports", tmp_path / "private"
+
+    def fail(*args, **kwargs):
+        raise OSError("simulated failure while publishing")
+
+    monkeypatch.setattr(runner, "publish_sealed_results", fail)
+    with pytest.raises(OSError, match="simulated failure"):
+        execute(synthetic_issue28, report_root, private_root)
+    monkeypatch.undo()
+
+    assert (private_root / RESULT_STORE).is_dir()
+    assert not (report_root / PUBLIC_REPORT).exists()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Publication must not recompute the experiment")
+
+    monkeypatch.setattr(runner, "run_experiment", forbidden)
+    destination, summary = runner.run_publish_only(
+        report_root=report_root, private_root=private_root
+    )
+
+    assert (destination / "summary.json").is_file()
+    assert summary["conclusion"]["code"]
+
+
+def test_a_changed_input_stops_the_run_before_registration(synthetic_issue28, tmp_path):
     _, data, artifacts, published = synthetic_issue28
     edited = tmp_path / "data"
     shutil.copytree(data, edited)
     sales = pd.read_parquet(edited / "sales.parquet")
     sales.loc[sales.index[-1], "quantity"] += 1
     sales.to_parquet(edited / "sales.parquet", index=False)
-    output = tmp_path / "reports" / "primary"
+    private_root = tmp_path / "private"
 
     with pytest.raises(ValueError, match="Input differs from the Issue #28 run: sales"):
         runner.run_execute(
-            arguments(edited, artifacts, output),
+            arguments(edited, artifacts),
             published_manifest=published,
             report_root=tmp_path / "reports",
+            private_root=private_root,
             n_resamples=10,
             expected_series=3,
         )
 
-    assert not output.exists()
+    assert not (private_root / RESERVATION).exists()
+    assert not (tmp_path / "reports" / PUBLIC_REPORT).exists()
 
 
 def test_an_unfrozen_protocol_is_refused(tmp_path):
@@ -197,6 +255,9 @@ def test_an_unfrozen_protocol_is_refused(tmp_path):
     assert len(runner.check_protocol_is_frozen()) == 64
 
 
-def test_the_command_line_requires_a_mode():
+def test_the_command_line_requires_one_mode():
     with pytest.raises(SystemExit):
         runner.main([])
+
+    with pytest.raises(SystemExit):
+        runner.main(["--execute", "--publish-only"])

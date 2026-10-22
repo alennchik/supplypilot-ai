@@ -23,9 +23,9 @@ from src.inventory_inputs import (
     ma28_paths,
     paths_from_predictions,
     simulated_days,
+    snapshot_verified,
     value_proxies,
-    verify_input_files,
-    verify_issue28_artifacts,
+    verified_snapshots,
 )
 
 SERIES = ["CA_food", "TX_hobby", "WI_house"]
@@ -67,29 +67,47 @@ def test_cohort_hash_uses_the_issue28_canonical_form():
     assert cohort_sha256(["a", "b", "c"]) == expected
 
 
-def write_artifact_set(folder, label):
-    """A self-consistent artifact set: files plus a preflight.json with their hashes."""
-    folder.mkdir(parents=True, exist_ok=True)
+INPUT_NAMES = ("sales", "metadata", "calendar", "baselines")
+
+
+def write_run(folder, label):
+    """A self-consistent Issue #28 run: artifacts, inputs and a preflight.json."""
+    artifacts = folder / "artifacts"
+    data = folder / "data"
+    artifacts.mkdir(parents=True)
+    data.mkdir()
 
     for name in ISSUE28_ARTIFACTS:
-        (folder / name).write_bytes(f"{label}: content of {name}".encode())
+        (artifacts / name).write_bytes(f"{label}: content of {name}".encode())
+
+    inputs = {}
+    for name in INPUT_NAMES:
+        path = data / f"{name}.bin"
+        path.write_bytes(f"{label}: {name} data".encode())
+        inputs[name] = path
 
     manifest = {
-        "artifact_sha256": {name: file_sha256(folder / name) for name in ISSUE28_ARTIFACTS},
+        "artifact_sha256": {
+            name: file_sha256(artifacts / name) for name in ISSUE28_ARTIFACTS
+        },
         "cohort_sha256": cohort_sha256(SERIES),
-        "execution": {"inputs": {}},
+        "execution": {
+            "inputs": {name: {"sha256": file_sha256(path)} for name, path in inputs.items()}
+        },
     }
-    (folder / "preflight.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
-    return folder
+    (artifacts / "preflight.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True)
+    )
+    return artifacts, inputs
 
 
-def write_published_record(path, artifact_folder):
+def write_published_record(path, artifacts):
     """The committed reveal manifest that anchors one specific run."""
     path.write_text(
         json.dumps(
             {
-                "preflight_sha256": file_sha256(artifact_folder / "preflight.json"),
-                "prediction_sha256": file_sha256(artifact_folder / "predictions.parquet"),
+                "preflight_sha256": file_sha256(artifacts / "preflight.json"),
+                "prediction_sha256": file_sha256(artifacts / "predictions.parquet"),
             }
         )
     )
@@ -97,61 +115,107 @@ def write_published_record(path, artifact_folder):
 
 
 @pytest.fixture
-def artifacts(tmp_path):
-    folder = write_artifact_set(tmp_path / "primary", "original run")
-    published = write_published_record(tmp_path / "published.json", folder)
-    return folder, published
+def run(tmp_path):
+    artifacts, inputs = write_run(tmp_path / "original", "original run")
+    published = write_published_record(tmp_path / "published.json", artifacts)
+    snapshots = tmp_path / "snapshots"
+    snapshots.mkdir()
+    return artifacts, inputs, published, snapshots
 
 
-def test_artifacts_traced_to_the_published_record_are_accepted(artifacts):
-    folder, published = artifacts
+def test_a_run_traced_to_the_published_record_is_snapshotted(run):
+    artifacts, inputs, published, folder = run
 
-    manifest = verify_issue28_artifacts(folder, published)
+    manifest, snapshots, provenance = verified_snapshots(
+        artifacts, inputs, folder, published
+    )
 
     assert set(manifest["artifact_sha256"]) == set(ISSUE28_ARTIFACTS)
+    assert set(snapshots) == {"preflight.json", *ISSUE28_ARTIFACTS, *INPUT_NAMES}
+    for name in ISSUE28_ARTIFACTS:
+        assert snapshots[name].read_bytes() == (artifacts / name).read_bytes()
+    assert snapshots["sales"].read_bytes() == inputs["sales"].read_bytes()
+    assert provenance["published_manifest_sha256"] == file_sha256(published)
+    assert provenance["input_sha256"]["calendar"] == file_sha256(inputs["calendar"])
+    assert set(provenance["artifact_sha256"]) == set(ISSUE28_ARTIFACTS)
 
 
-def test_a_different_self_consistent_artifact_set_is_rejected(artifacts, tmp_path):
-    _, published = artifacts
-    other = write_artifact_set(tmp_path / "other", "another run")
+def test_a_different_self_consistent_run_is_rejected(run, tmp_path):
+    _, _, published, folder = run
+    other, other_inputs = write_run(tmp_path / "other", "another run")
 
     with pytest.raises(ValueError, match="not the one behind the published"):
-        verify_issue28_artifacts(other, published)
+        verified_snapshots(other, other_inputs, folder, published)
 
 
 def test_a_preflight_whose_prediction_hash_differs_from_the_published_one_is_rejected(
-    artifacts,
+    run,
 ):
-    folder, published = artifacts
+    artifacts, inputs, published, folder = run
     record = json.loads(published.read_text())
     record["prediction_sha256"] = "0" * 64
     published.write_text(json.dumps(record))
 
     with pytest.raises(ValueError, match="prediction hash differs"):
-        verify_issue28_artifacts(folder, published)
+        verified_snapshots(artifacts, inputs, folder, published)
 
 
-def test_a_missing_published_record_is_rejected(artifacts, tmp_path):
-    folder, _ = artifacts
+def test_a_missing_published_record_is_rejected(run, tmp_path):
+    artifacts, inputs, _, folder = run
 
     with pytest.raises(ValueError, match="Missing published"):
-        verify_issue28_artifacts(folder, tmp_path / "absent.json")
+        verified_snapshots(artifacts, inputs, folder, tmp_path / "absent.json")
 
 
-def test_a_changed_artifact_is_rejected(artifacts):
-    folder, published = artifacts
-    (folder / "model.txt").write_bytes(b"retrained")
+def test_a_changed_artifact_is_rejected(run):
+    artifacts, inputs, published, folder = run
+    (artifacts / "model.txt").write_bytes(b"retrained")
 
     with pytest.raises(ValueError, match="artifact changed: model.txt"):
-        verify_issue28_artifacts(folder, published)
+        verified_snapshots(artifacts, inputs, folder, published)
 
 
-def test_a_missing_artifact_is_rejected(artifacts):
-    folder, published = artifacts
-    (folder / "lookups.parquet").unlink()
+def test_a_missing_artifact_is_rejected(run):
+    artifacts, inputs, published, folder = run
+    (artifacts / "lookups.parquet").unlink()
 
-    with pytest.raises(ValueError, match="Missing Issue #28 artifact"):
-        verify_issue28_artifacts(folder, published)
+    with pytest.raises(ValueError, match="Missing file"):
+        verified_snapshots(artifacts, inputs, folder, published)
+
+
+def test_a_changed_input_is_rejected(run):
+    artifacts, inputs, published, folder = run
+    inputs["sales"].write_bytes(b"edited sales")
+
+    with pytest.raises(ValueError, match="Input differs from the Issue #28 run: sales"):
+        verified_snapshots(artifacts, inputs, folder, published)
+
+
+def test_an_input_without_a_recorded_hash_is_rejected(run):
+    artifacts, inputs, published, folder = run
+
+    with pytest.raises(ValueError, match="No recorded Issue #28 hash"):
+        verified_snapshots(
+            artifacts, {**inputs, "extra": inputs["sales"]}, folder, published
+        )
+
+
+def test_a_snapshot_keeps_the_verified_bytes_after_the_original_changes(tmp_path):
+    original = tmp_path / "sales.parquet"
+    original.write_bytes(b"verified bytes")
+    copy = snapshot_verified(
+        original, file_sha256(original), tmp_path / "snapshot", mismatch="changed"
+    )
+
+    original.write_bytes(b"edited later")
+
+    assert copy.read_bytes() == b"verified bytes"
+
+    with pytest.raises(ValueError, match="changed"):
+        snapshot_verified(
+            original, "0" * 64, tmp_path / "second", mismatch="changed"
+        )
+    assert not (tmp_path / "second").exists()
 
 
 def test_the_committed_published_record_anchors_the_chain():
@@ -163,21 +227,6 @@ def test_the_committed_published_record_anchors_the_chain():
     assert record["prediction_sha256"] == (
         "5b5317ef50bf2fcde8e635ac4380cf4f12d164c37b21e409d714cb2254ee0211"
     )
-
-
-def test_input_files_must_match_recorded_hashes(tmp_path):
-    data = tmp_path / "sales.parquet"
-    data.write_bytes(b"original")
-    manifest = {"execution": {"inputs": {"sales": {"sha256": file_sha256(data)}}}}
-
-    verify_input_files(manifest, {"sales": data})
-
-    data.write_bytes(b"edited")
-    with pytest.raises(ValueError, match="Input differs"):
-        verify_input_files(manifest, {"sales": data})
-
-    with pytest.raises(ValueError, match="No recorded"):
-        verify_input_files(manifest, {"calendar": data})
 
 
 def test_frozen_cohort_checks_count_and_hash():
