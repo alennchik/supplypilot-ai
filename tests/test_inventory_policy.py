@@ -4,11 +4,13 @@ import numpy as np
 import pytest
 
 from src.inventory_policy import (
+    initial_stock_covering_lead_time,
     perfect_foresight_protection_demand,
     poisson_scaled_order_up_to,
     protection_forecast,
     protection_interval_days,
 )
+from src.inventory_simulation import review_times, simulate_periodic_review
 
 
 @pytest.mark.parametrize(
@@ -89,3 +91,91 @@ def test_perfect_foresight_sums_the_protection_interval():
 def test_perfect_foresight_rejects_negative_demand():
     with pytest.raises(ValueError, match="nonnegative"):
         perfect_foresight_protection_demand([[1, -1]], lead_time_days=1)
+
+
+def test_perfect_foresight_rejects_fractional_demand():
+    with pytest.raises(ValueError, match="whole units"):
+        perfect_foresight_protection_demand([[1, 0.5]], lead_time_days=1)
+
+
+def test_initial_stock_covers_exactly_the_first_lead_time_days():
+    demand = [[1, 2, 3, 4], [0, 0, 5, 0]]
+
+    np.testing.assert_array_equal(initial_stock_covering_lead_time(demand, 2), [3, 0])
+    np.testing.assert_array_equal(initial_stock_covering_lead_time(demand, 0), [0, 0])
+    np.testing.assert_array_equal(initial_stock_covering_lead_time(demand, 10), [10, 5])
+
+
+@pytest.mark.parametrize("lead_time", [-1, 1.5])
+def test_initial_stock_rejects_invalid_lead_time(lead_time):
+    with pytest.raises(ValueError, match="Lead time"):
+        initial_stock_covering_lead_time([[1, 2]], lead_time)
+
+
+def _stock_needed_until_next_delivery(demand, lead_time, period=7):
+    """Demand from tomorrow until the day before the next scheduled delivery."""
+    n_days = demand.shape[1]
+    arrivals = review_times(n_days, period) + lead_time + 1
+    cumulative = np.concatenate(
+        [np.zeros((demand.shape[0], 1)), demand.cumsum(axis=1)], axis=1
+    )
+    needed = np.zeros_like(demand)
+
+    for day in range(1, n_days + 1):
+        later = arrivals[arrivals > day]
+        last_day = min(later[0] - 1, n_days) if later.size else n_days
+        needed[:, day - 1] = cumulative[:, last_day] - cumulative[:, day]
+
+    return needed
+
+
+@pytest.mark.parametrize("lead_time", [0, 1, 3, 7])
+def test_perfect_foresight_holds_the_minimum_stock_for_zero_lost_sales(lead_time):
+    """With lead-time start stock, it ends each day holding exactly what must
+    be sold before the next delivery: no zero-loss policy with the same
+    delivery days can hold less on any day."""
+    rng = np.random.default_rng(20 + lead_time)
+    demand = rng.poisson(rng.uniform(0.05, 5.0, size=(60, 1)), size=(60, 112))
+
+    result = simulate_periodic_review(
+        demand,
+        perfect_foresight_protection_demand(demand, lead_time_days=lead_time),
+        lead_time_days=lead_time,
+        initial_on_hand=initial_stock_covering_lead_time(demand, lead_time),
+    )
+
+    assert result.lost.sum() == 0
+    np.testing.assert_array_equal(
+        result.on_hand, _stock_needed_until_next_delivery(demand, lead_time)
+    )
+
+
+@pytest.mark.parametrize("lead_time, changed_days", [(7, []), (3, [109, 110, 111, 112])])
+def test_unknown_demand_after_the_span_only_changes_late_reference_stock(
+    lead_time, changed_days
+):
+    rng = np.random.default_rng(4)
+    longer = rng.poisson(2.0, size=(50, 140))
+    span = longer[:, :112]
+    reviews = len(review_times(112, 7))
+    start = initial_stock_covering_lead_time(span, lead_time)
+
+    truncated = simulate_periodic_review(
+        span,
+        perfect_foresight_protection_demand(span, lead_time_days=lead_time),
+        lead_time_days=lead_time,
+        initial_on_hand=start,
+    )
+    known_future = simulate_periodic_review(
+        span,
+        perfect_foresight_protection_demand(longer, lead_time_days=lead_time)[
+            :, :reviews
+        ],
+        lead_time_days=lead_time,
+        initial_on_hand=start,
+    )
+
+    differs = np.flatnonzero((truncated.on_hand != known_future.on_hand).any(axis=0))
+
+    assert (differs + 1).tolist() == changed_days
+    np.testing.assert_array_equal(truncated.sales, known_future.sales)

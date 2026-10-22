@@ -5,8 +5,12 @@ import math
 import numpy as np
 import pytest
 
-from src.inventory_policy import perfect_foresight_protection_demand
+from src.inventory_policy import (
+    initial_stock_covering_lead_time,
+    perfect_foresight_protection_demand,
+)
 from src.inventory_simulation import (
+    MAX_UNITS,
     order_quantity,
     review_times,
     simulate_periodic_review,
@@ -152,6 +156,34 @@ def test_orders_never_depend_on_future_demand():
     assert not np.array_equal(perturbed.orders[:, 4:], baseline.orders[:, 4:])
 
 
+def test_empty_start_leaves_a_permanent_surplus_for_rare_demand():
+    """Review counterexample: 10 units a day for a week, then nothing."""
+    demand = np.array([[10] * 7 + [0] * 105])
+    targets = perfect_foresight_protection_demand(demand, lead_time_days=7)
+
+    result = simulate_periodic_review(demand, targets, lead_time_days=7)
+
+    # The first order covers the 70 units lost before it arrives; with no
+    # later demand they stay on the shelf after any warm-up.
+    assert result.lost.sum() == 70
+    assert result.on_hand[0, 27] == result.on_hand[0, 41] == result.on_hand[0, -1] == 70
+
+
+def test_starting_with_lead_time_demand_removes_the_surplus():
+    demand = np.array([[10] * 7 + [0] * 105])
+    targets = perfect_foresight_protection_demand(demand, lead_time_days=7)
+
+    result = simulate_periodic_review(
+        demand,
+        targets,
+        lead_time_days=7,
+        initial_on_hand=initial_stock_covering_lead_time(demand, 7),
+    )
+
+    assert result.lost.sum() == 0
+    assert (result.on_hand[0, 7:] == 0).all()
+
+
 @pytest.mark.parametrize("lead_time", [0, 1, 3, 7])
 def test_perfect_foresight_never_loses_a_sale_after_first_delivery(lead_time):
     rng = np.random.default_rng(lead_time)
@@ -244,6 +276,26 @@ def test_order_quantity_rounds_up_without_floating_point_noise():
 def test_order_quantity_rejects_non_finite_values():
     with pytest.raises(ValueError, match="finite"):
         order_quantity([np.nan], [0])
+
+
+def test_order_quantity_rejects_values_that_would_overflow():
+    with pytest.raises(ValueError, match="supported range"):
+        order_quantity([1e20], [0])
+
+
+@pytest.mark.parametrize(
+    "demand, targets, initial",
+    [
+        ([[MAX_UNITS + 1, 0]], [[1]], None),
+        ([[1, 0]], [[MAX_UNITS + 1]], None),
+        ([[1, 0]], [[1]], [MAX_UNITS + 1]),
+    ],
+)
+def test_values_outside_the_supported_range_are_rejected(demand, targets, initial):
+    with pytest.raises(ValueError, match="supported range"):
+        simulate_periodic_review(
+            demand, targets, lead_time_days=1, initial_on_hand=initial
+        )
 
 
 @pytest.mark.parametrize(

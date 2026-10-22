@@ -19,6 +19,10 @@ import numpy as np
 
 ORDER_TOLERANCE = 1e-9
 
+# Far above any M5 value, and small enough that pooled sums over thousands of
+# series and days stay exact in int64 and float64.
+MAX_UNITS = 10**9
+
 
 @dataclass(frozen=True)
 class SimulationResult:
@@ -67,6 +71,9 @@ def _validate_demand(demand) -> np.ndarray:
     if (values < 0).any() or (values != np.floor(values)).any():
         raise ValueError("Demand must be nonnegative whole units")
 
+    if (values > MAX_UNITS).any():
+        raise ValueError(f"Demand exceeds the supported range of {MAX_UNITS} units")
+
     return values.astype(np.int64)
 
 
@@ -86,6 +93,11 @@ def _validate_targets(order_up_to, shape: tuple[int, int]) -> np.ndarray:
 
     if (values < 0).any():
         raise ValueError("Order-up-to levels cannot be negative")
+
+    if (values > MAX_UNITS).any():
+        raise ValueError(
+            f"Order-up-to levels exceed the supported range of {MAX_UNITS} units"
+        )
 
     return values
 
@@ -108,6 +120,11 @@ def _validate_initial(initial_on_hand, n_series: int) -> np.ndarray:
     if (values < 0).any() or (values != np.floor(values)).any():
         raise ValueError("Initial on-hand must be nonnegative whole units")
 
+    if (values > MAX_UNITS).any():
+        raise ValueError(
+            f"Initial on-hand exceeds the supported range of {MAX_UNITS} units"
+        )
+
     return values.astype(np.int64)
 
 
@@ -123,9 +140,14 @@ def order_quantity(order_up_to, inventory_position) -> np.ndarray:
     if not np.isfinite(target).all() or not np.isfinite(position).all():
         raise ValueError("Order-up-to levels and inventory positions must be finite")
 
-    needed = np.ceil(target - position - ORDER_TOLERANCE)
+    needed = np.maximum(np.ceil(target - position - ORDER_TOLERANCE), 0)
 
-    return np.maximum(needed, 0).astype(np.int64)
+    if (needed > MAX_UNITS).any():
+        raise ValueError(
+            f"Order quantity exceeds the supported range of {MAX_UNITS} units"
+        )
+
+    return needed.astype(np.int64)
 
 
 def simulate_periodic_review(

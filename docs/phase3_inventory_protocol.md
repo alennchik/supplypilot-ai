@@ -1,14 +1,22 @@
 # Phase 3 inventory simulation protocol
 
-**Status: DRAFT v0.1. Not frozen.** The maintainer reviews this document, edits it if needed, confirms the decisions in Section 15 on the Phase 3A issue, and merges it. That merge freezes it as v1.0. No inventory metric may be computed on real M5 data before the freeze. Any later change gets a new version number and is disclosed in the final report.
+**Status: DRAFT v0.2 (revised after review). Not frozen.**
+
+To freeze it, the maintainer:
+
+1. confirms the decisions in Section 15 on the Phase 3A issue (#31);
+2. adds a separate commit that changes this status line to `FROZEN v1.0`, with the date and a link to the confirmation;
+3. merges that commit.
+
+No inventory metric may be computed on real M5 data before that merge. Any later change gets a new version number and is disclosed in the final report.
 
 ## 1. Research question
 
 The frozen Issue #28 benchmark gave a mixed result. LightGBM had lower daily pooled WAPE than MA28 (73.50% vs. 74.38%), but MA28 had lower weekly WAPE, 28-day WAPE and RMSE. Inventory decisions depend on cumulative demand over a replenishment cycle, so forecast error alone does not say which method gives better ordering decisions.
 
-> Under identical replenishment rules and the same historical demand, does replacing MA28 forecasts with the frozen LightGBM forecasts give a better trade-off between service (fill rate) and inventory held?
+> Under identical replenishment rules and the same historical demand, does replacing MA28 forecasts with the frozen LightGBM forecasts give a better trade-off between fill rate and inventory held?
 
-A result in either direction, or no detectable difference, is a valid outcome.
+A result in either direction, or no detectable difference, is a valid outcome. The answer holds for the policy family and assumptions below, not for every inventory system.
 
 ## 2. Fixed inputs inherited from Issue #28
 
@@ -24,8 +32,8 @@ A result in either direction, or no detectable difference, is a valid outcome.
 - **First review (t0):** Sunday 2016-01-03, at end of day.
 - **Simulated demand days:** 2016-01-04 through 2016-04-24 (112 days). This is the Issue #28 test span and the last day of the M5 data used here.
 - **Reviews:** every 7 days at end of Sunday, 2016-01-03 through 2016-04-17 (16 reviews). Each review date is also a forecast origin.
-- **Warm-up:** 2016-01-04 through 2016-01-31 (28 days) are simulated but excluded from every metric.
-- **Evaluation window:** 2016-02-01 through 2016-04-24 (84 days, 12 weeks). This window is identical for every method, lead time and safety-stock setting.
+- **Warm-up:** 2016-01-04 through 2016-01-31 (28 days) are simulated but excluded from every metric. This is a chosen assumption. It does not guarantee that every effect of the starting state is gone (Section 8).
+- **Evaluation window:** 2016-02-01 through 2016-04-24 (84 days, 12 weeks). This window is identical for every method, lead time, safety-stock setting and sensitivity run.
 
 ## 4. Daily event order
 
@@ -38,7 +46,9 @@ For each series, on each simulated day `d`:
 
 The first review, at t0, happens before the first simulated day.
 
-So lead time `L` means that exactly `L` days of demand pass between placing and receiving an order. An order placed at review `t` has to cover demand from `t + 1` through `t + L + R`, until the next order arrives. That span is the **protection interval** `P = L + R`.
+**Lead-time convention:** an order is placed on Sunday evening, then exactly `L` days of demand pass, and the delivery is available the next morning. For `L = 7`, demand on Monday through Sunday is served from existing stock, and the delivery is on the shelf the following Monday.
+
+An order placed at review `t` has to cover demand from `t + 1` through `t + L + R`, until the next order arrives. That span is the **protection interval** `P = L + R`.
 
 ## 5. Scenarios
 
@@ -46,10 +56,10 @@ So lead time `L` means that exactly `L` days of demand pass between placing and 
 |---|---|
 | Review period `R` | 7 days (Sunday reviews) |
 | Lead time `L` | **7 (primary)**, 3, 1, so `P` = 14, 10, 8 days |
-| Safety factor `z` | 0 to 3.0 in steps of 0.25 (13 values) |
-| Methods | LightGBM, MA28, plus a perfect-foresight reference (Section 7) |
+| Safety factor `z` | 0 to 3.0 in steps of 0.1 (31 values) |
+| Methods | LightGBM, MA28, plus the perfect-foresight policy reference (Section 7) |
 
-All `P` values are within the 28-day forecast horizon. The grid is fixed in advance: no value is added, removed or chosen after looking at Phase 3 results.
+All `P` values are within the 28-day forecast horizon. The grid is fixed in advance: no value is added, removed or chosen after looking at Phase 3 results. A finer grid shortens the gap between simulated policies, but the endpoint is still an interpolation (Section 11).
 
 ## 6. Order-up-to level
 
@@ -63,27 +73,34 @@ S(i, t) = F(i, t) + z * sqrt(F(i, t))
 - **LightGBM:** daily predictions from `predict_at_origin()` at origin `t`, using sales through `t` and future-known calendar/SNAP features only.
 - **MA28:** `P` times the mean of the last 28 days of sales through `t`.
 
-**Why `sqrt(F)` and not the standard deviation of residuals:** demand here is mostly small counts, and for Poisson counts the standard deviation of `P`-day demand is the square root of its mean. One transparent formula applies equally to both methods and needs no fitted error model. Residual-based calibration on the validation period would not be fair. The frozen model's training labels cover 2015-10-19 through 2016-01-03, so its validation-period residuals are in-sample, while MA28's are out-of-sample.
+**Why `sqrt(F)`:** demand here is mostly small counts, and for Poisson counts the standard deviation of `P`-day demand is the square root of its mean. It is a simple heuristic that needs no fitted error model. Residual-based calibration on the validation period would be unfair: the frozen model's training labels cover 2015-10-19 through 2016-01-03, so its validation-period residuals are in-sample, while MA28's are out-of-sample.
 
-Real demand is more variable than Poisson. Because every `z` is evaluated, a scale error shared by all series only moves points along each curve. Series-specific overdispersion remains a limitation, and it applies to both methods equally.
+**What it does not guarantee:** both methods use the same rule, but the rule acts on different forecasts. Their errors, and sparse demand, can interact with it differently. Real demand is also more variable than Poisson. A scale error shared by all series only moves points along each curve, within the range the grid covers. Series-specific mismatches remain. The experiment therefore compares the two forecasters **within this policy family**. It is not a universal ranking of forecasters for every inventory system.
 
 `z` is a lever that traces each method's trade-off curve. It is **not** a service-level guarantee, so `z = 1.645` must not be described as "95% service". Service is measured, never assumed. The `inventory.service_level: 0.95` value in `config.yaml` is not used by Phase 3.
 
-**Integer units:** `ceil(S - IP)` raises the inventory position to the smallest whole number at or above `S`. This is the discrete analogue of a base-stock quantile. One consequence matters most for sparse series: any strictly positive forecast keeps at least one unit on hand, while a zero forecast stocks nothing. A round-half-up variant is run as a robustness check (Section 10).
+**Integer units:** `ceil(S - IP)` raises the inventory position to the smallest whole number at or above `S`. One consequence matters most for sparse series: any strictly positive forecast keeps the **inventory position** (on hand plus on order) at one unit or more. The shelf itself can still be empty while that unit is in transit. A zero forecast orders nothing. A round-half-up variant is run as a robustness check (Section 11).
 
-## 7. Perfect-foresight reference
+## 7. Perfect-foresight policy reference
 
-The reference uses `S(i, t)` = the **actual** demand over the protection interval, with `z = 0`. Days past 2016-04-24 count as zero; they only affect demand after the evaluation window. Once its first order has arrived, it never loses a sale. Its inventory shows how much stock weekly reviews require even with perfect knowledge. It is a bound for interpretation, not a feasible method, and it is the only place where future demand is used.
+The reference uses `S(i, t)` = the **actual** demand over the protection interval, with `z = 0`. It is a reference with future information, not a feasible method. It is the only place where future demand drives orders.
+
+**What it shows, under stated conditions:** with the primary starting stock (Section 8), the reference ends every day holding exactly the demand that must be served before the next scheduled delivery. Any policy with the same review days and lead time that loses no sales must hold at least that much on every day. Under these conditions it is therefore the minimum average stock compatible with a 100% fill rate, and a test checks this property day by day.
+
+It does not bound policies with a different delivery schedule, such as daily deliveries. With an empty start it is not minimal either: the first order would include demand lost before the first delivery.
+
+**After the span:** demand after 2016-04-24 is unknown and counts as zero for the reference. Sales inside the span never change. For `L = 7`, no delivery that arrives inside the span is affected. For `L = 3` and `L = 1`, the reference holds less stock on the last 4 and 6 days of the span. It does not stock for demand after the span, while the forecasting methods do.
 
 ## 8. Initial state and end of span
 
-- Every series starts with zero on-hand and no outstanding orders, identically for all methods and settings.
-- The empty start mechanically distorts the first cycles: demand is lost before the first delivery, and the first order can leave a small overhang. The 28-day warm-up covers at least `L + 2R` days for every lead time in the grid, so the evaluation window starts after this distortion is gone.
-- There is no terminal valuation. Metrics use evaluation days only, and orders arriving after 2016-04-24 never count.
+- **Primary start:** each series begins with on-hand stock equal to its observed demand over the first `L` simulated days, with no outstanding orders. The value is identical for every method and `z`. No forecaster or ordering decision sees it.
+- **Why not an empty start:** with zero stock, the first order also covers demand that is lost before it arrives. For a rare-demand series that surplus can remain for the whole window. Example: with 10 units a day for a week, then nothing, and `L = 7`, an empty start leaves 70 units on the shelf to the end of the span, after any warm-up. The primary start removes this surplus by construction.
+- **Sensitivity:** the empty start is also run on the same evaluation window and reported next to the primary results. Other starting effects cannot be ruled out in general, so the conclusion is checked against this sensitivity run rather than assumed.
+- **End of span:** there is no terminal valuation. Metrics use evaluation days only, and orders arriving after 2016-04-24 never count.
 
 ## 9. Information rules
 
-- At review `t`, a decision may use only that method's forecast from origin `t` and the simulated inventory position. Future demand is never used, except by the labelled perfect-foresight reference.
+- At review `t`, a decision may use only that method's forecast from origin `t` and the simulated inventory position. Future demand is never used, except by the labelled perfect-foresight reference and the starting stock in Section 8.
 - Both forecasters see the **external** M5 sales history, not the simulated sales. Simulated stockouts do not censor what the forecasters see. This isolates forecast quality but leaves out the feedback loop of a real store.
 - The frozen model is not refitted after 2016-01-03. It sees new sales through its features at every origin, but its learned relationships stay those of the October 2015 – January 2016 training period; for example, target months 2–4 were never seen in training. This may handicap LightGBM later in the span. It is accepted as a conservative choice and disclosed.
 - These windows were already exposed in Phase 1 and Phase 2. Every Phase 3 parameter is fixed in this document before any Phase 3 run, and nothing is tuned on Phase 3 outcomes.
@@ -94,32 +111,54 @@ Each metric is pooled over the cohort and the 84 evaluation days, for every comb
 
 | Metric | Definition |
 |---|---|
-| Fill rate | units sold / units demanded |
+| Fill rate | units sold / units demanded: the share of demanded **units** served. The data has no customers. |
 | Lost units | units demanded − units sold |
 | Stockout rate | series-days with a lost sale / series-days with positive demand |
 | Average on-hand | mean over evaluation days of total end-of-day units on hand |
 | Deliveries | number of positive receipts on evaluation days |
 | Units received | units received on evaluation days |
 
+**Value proxy:** `v_i` is the median of series `i`'s available daily sell prices over the 28 days through 2016-01-03, in US dollars per unit. If a series has no available price in that window, the run stops and names the series. It is never dropped silently or given a zero value. Sell price is not cost.
+
 Secondary, descriptive:
 
-- **Value-weighted** on-hand and lost sales, using each series' median sell price over the 28 days through 2016-01-03 as a value proxy. Sell price is not cost.
-- **Illustrative cost:** a holding rate of 25% per year of the value proxy, plus a lost-sale penalty of 0.25, 0.5 or 1.0 times the value proxy. M5 has no cost data, so these figures are never presented as Walmart dollars.
+- **Value-weighted metrics:** `sum_i v_i × on_hand_unit_days_i / 84` (average stock value) and `sum_i v_i × lost_units_i` (lost sales value).
+- **Illustrative cost**, over the 84 evaluation days:
+  - holding: `sum_i v_i × on_hand_unit_days_i × 0.25 / 365`;
+  - penalty: `sum_i v_i × lost_units_i × p`, for `p` in {0.25, 0.5, 1.0}.
 
-## 11. Primary endpoint and decision rule
+  Results are reported in illustrative dollars at sell price, never as Walmart costs.
 
-**Primary endpoint (`L = 7`):** the average on-hand units each method needs to reach a pooled **95% fill rate**. It is linearly interpolated between the two adjacent `z` values whose fill rates first bracket 95%, in `z` order. The comparison is
+## 11. Primary endpoint, uncertainty and interpretation
+
+**Primary endpoint (`L = 7`): interpolated inventory at a 95% fill rate.** On each method's curve, in `z` order, the endpoint is linearly interpolated between the two simulated points that first bracket 95%. It is an estimate between two simulated policies, not a policy that was itself simulated, and integer ordering can make the true curve step-like. Every report shows:
+
+- the endpoint status: `exact`, `interpolated`, `above_target_at_min_z` (the smallest `z` already exceeds 95%), or `not_reached`;
+- both bracketing simulated points (`z`, fill rate, average on-hand);
+- the first simulated `z` that reaches at least 95%, as a policy that was actually run.
+
+The comparison is
 
 ```
 delta = (inventory_LightGBM - inventory_MA28) / inventory_MA28
 ```
 
-with a 95% **paired bootstrap** confidence interval: 2,000 resamples of series with replacement, the same resample for both methods, seed 42.
+It is computed only when both endpoints are `exact` or `interpolated`. Otherwise the primary endpoint is "not estimable", the two statuses are reported, and the full curves are the result.
 
-- LightGBM is better if the whole interval is below 0. MA28 is better if it is entirely above 0. Otherwise there is no evidence of a difference.
-- An absolute `delta` under 2% is described as practically negligible, even if the interval excludes 0.
-- If either method does not reach 95% within the grid, the primary endpoint is reported as "not estimable" and the full curves are the result.
-- Bootstrap resamples in which either endpoint is not estimable are counted and reported. If they exceed 1% of resamples, the interval is reported as unreliable.
+**Uncertainty: paired cluster bootstrap.**
+
+- **Clusters:** whole items (`item_id`) are resampled with replacement, so all stores of the same product stay together. The same resample is used for both methods.
+- **Resamples:** 2,000, seed 42, with a 95% **percentile** interval.
+- **Inside each resample:** pooled fill rates and average on-hand are recomputed for every `z` from per-series totals, and both endpoints are re-interpolated.
+- **Invalid resamples:** a resample is invalid if its evaluated demand is zero, either endpoint is not estimable, or the MA28 endpoint is zero. Invalid resamples are counted and reported. The interval uses valid resamples only, and it is labelled unreliable when invalid resamples exceed 1%.
+
+**Interpretation:**
+
+- **Practically equivalent:** the whole interval lies inside (−2%, +2%). A small point estimate alone is not evidence of equivalence: for example, −1% with an interval of −15% to +12% is inconclusive.
+- **LightGBM needs less inventory:** the whole interval is below 0 and not inside the band.
+- **MA28 needs less inventory:** the whole interval is above 0 and not inside the band.
+- Otherwise the result is **inconclusive**.
+- The interval describes uncertainty from resampling items within this cohort and this 12-week period. Store-wide and calendar shocks shared across items are not captured, and the conclusion does not transfer to other years, stores or policy families.
 
 Secondary analyses are descriptive and have no decision rule:
 
@@ -127,9 +166,7 @@ Secondary analyses are descriptive and have no decision rule:
 - the same endpoint at 90% and 98% fill rate;
 - breakdowns by demand group (frequent, mixed, sparse, using `build_demand_profile` at 2016-01-03) and by category;
 - value-weighted metrics and the illustrative cost grid;
-- robustness checks: round-half-up ordering, and a 42-day warm-up.
-
-The bootstrap resamples series, not days. Shocks shared across series are not modelled, so the intervals may be too narrow, and the report must say so.
+- robustness checks: the empty start (Section 8), and round-half-up ordering.
 
 ## 12. Consistency checks before any inventory metric
 
@@ -137,6 +174,7 @@ The bootstrap resamples series, not days. Shocks shared across series are not mo
 2. MA28 forecasts at those origins must match the Phase 1 predictions in `data/processed/m5_backtest_predictions.parquet` exactly.
 3. The cohort, model and data hashes must match the recorded ones.
 4. Every series and review must have finite, nonnegative forecasts for horizons `1..P`.
+5. Every series must have a value proxy (Section 10).
 
 If any check fails, the run stops without writing results.
 
@@ -146,23 +184,34 @@ If any check fails, the run stops without writing results.
 - Lost sales only: no backorders, substitution or cross-store transfers.
 - Deterministic lead times, unlimited supplier capacity, no minimum order quantities or case packs, no shelf capacity, no perishability, no fixed ordering cost.
 - Each product-store series is simulated independently, as a single echelon.
-- Results describe a 2,996-series sample over 12 evaluation weeks in early 2016, not the full M5 population or production use.
+- The comparison is between forecasters inside one policy family (`S = F + z·sqrt(F)`, weekly review, lost sales).
+- Results describe a 2,996-series sample over 12 evaluation weeks in early 2016, not the full M5 population or production use. They are simulation results under these assumptions, not measured savings of a real business.
 
 ## 14. Implementation stages
 
 | Stage | Content | Needs real data |
 |---|---|---|
 | 3A | This protocol, reviewed and frozen | No |
-| 3B | `src/inventory_simulation.py`, `src/inventory_policy.py`, `src/inventory_metrics.py`, with hand-traced tests (implemented alongside this draft) | No |
+| 3B | `src/inventory_simulation.py`, `src/inventory_policy.py`, `src/inventory_metrics.py`: simulator, ordering rule, starting stock, reference, metrics, endpoint statuses, paired cluster bootstrap, costs and value proxy, with tests (implemented alongside this draft) | No |
 | 3C | Weekly LightGBM/MA28/reference protection forecasts and the Section 12 checks | Model artifacts + data |
-| 3D | `scripts/run_inventory_simulation.py`, bootstrap and reports in `reports/phase3_inventory/`, never overwriting existing results | Model artifacts + data |
+| 3D | `scripts/run_inventory_simulation.py` and reports in `reports/phase3_inventory/`, never overwriting existing results | Model artifacts + data |
 
 ## 15. Decisions for the maintainer to confirm before freezing
 
 1. `ceil` ordering as primary, with round-half-up only as a robustness check.
-2. `S = F + z·sqrt(F)` with the 13-value `z` grid (0 to 3.0, step 0.25). The fine step keeps linear-interpolation error small at the 95% endpoint, and the extra runs cost well under a second each.
-3. Zero initial stock, a 28-day warm-up, and evaluation from 2016-02-01 to 2016-04-24.
+2. `S = F + z·sqrt(F)` with `z` from 0 to 3.0 in steps of 0.1 (31 values).
+3. Starting stock equal to each series' demand over the first `L` days, the same for all methods. An empty-start sensitivity run, a 28-day warm-up, and evaluation from 2016-02-01 to 2016-04-24.
 4. `L` ∈ {7 primary, 3, 1}, with `R = 7` and Sunday reviews.
-5. Primary endpoint: inventory at 95% fill for `L = 7`, 2,000 paired bootstrap resamples, seed 42, 2% negligibility band.
-6. Inclusion of the perfect-foresight reference.
-7. Illustrative cost parameters (25% per year holding rate; penalty 0.25, 0.5 or 1.0 times the value proxy).
+5. Primary endpoint: interpolated inventory at 95% fill for `L = 7`, reported with its status, both bracketing points and the first simulated point at or above 95%.
+6. Paired item-cluster percentile bootstrap: 2,000 resamples, seed 42. Equivalence is claimed only if the whole interval is inside ±2%.
+7. Inclusion of the perfect-foresight policy reference, with the conditions in Section 7.
+8. Value proxy and illustrative cost as defined in Section 10 (25% per year holding; penalty 0.25, 0.5 or 1.0 times the value proxy).
+
+## Changes from v0.1
+
+- **Start:** the empty start is replaced by starting stock equal to the first-`L`-day demand, because an empty start can leave a surplus that never sells. The empty start is kept as a sensitivity run. The claim that the warm-up removes all start effects is withdrawn.
+- **Reference:** renamed the perfect-foresight *policy reference*. Its minimum-stock property is now stated with its conditions and tested. The effect of unknown demand after the span is described exactly.
+- **Endpoint:** renamed *interpolated* inventory at 95% fill, with explicit statuses (including above-target-at-minimum-`z`), bracketing points, and the first simulated policy reaching the target. The `z` step goes from 0.25 to 0.1.
+- **Bootstrap and decision rule:** item clusters instead of single series; a percentile interval; full recomputation inside each resample; rules for invalid resamples; equivalence requires the whole interval inside ±2%.
+- **Wording:** the claim that the safety-stock rule affects both methods equally is withdrawn. Rounding up raises the inventory position, not necessarily the shelf. Fill rate is defined in units.
+- **Definitions:** an exact cost formula with units, a stop rule for missing prices, and an explicit freeze step.
