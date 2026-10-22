@@ -412,11 +412,11 @@ def illustrative_costs(
     }
 
 
-def value_proxy_from_prices(prices) -> np.ndarray:
+def value_proxy_from_prices(prices, series_ids=None) -> np.ndarray:
     """Median available price per series; missing prices are NaN.
 
     A series with no available price stops the run: it is never dropped
-    silently or given a zero value.
+    silently or given a zero value. With series_ids, the error names them.
     """
     try:
         values = np.asarray(prices, dtype=float)
@@ -429,10 +429,19 @@ def value_proxy_from_prices(prices) -> np.ndarray:
     if np.isinf(values).any() or (values[~np.isnan(values)] <= 0).any():
         raise ValueError("Available prices must be finite and positive")
 
+    if series_ids is not None and len(series_ids) != values.shape[0]:
+        raise ValueError("Series IDs must have one entry per price row")
+
     missing = np.isnan(values).all(axis=1)
 
     if missing.any():
         rows = np.flatnonzero(missing).tolist()
-        raise ValueError(f"No available price for series at rows {rows}")
+
+        if series_ids is None:
+            raise ValueError(f"No available price for series at rows {rows}")
+
+        ids = list(series_ids)
+        names = [str(ids[row]) for row in rows]
+        raise ValueError(f"No available price for series: {names}")
 
     return np.nanmedian(values, axis=1)
