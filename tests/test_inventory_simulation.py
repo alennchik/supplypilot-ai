@@ -100,6 +100,17 @@ def test_inventory_above_target_orders_nothing():
     np.testing.assert_array_equal(result.on_hand, [[9, 8, 7, 6]])
 
 
+def test_starting_stock_changes_the_first_order():
+    """Review example: the same target of 100 units, different starting stock."""
+    empty = simulate_periodic_review([[10] * 7], [[100]], lead_time_days=7)
+    stocked = simulate_periodic_review(
+        [[10] * 7], [[100]], lead_time_days=7, initial_on_hand=[70]
+    )
+
+    np.testing.assert_array_equal(empty.orders, [[100]])
+    np.testing.assert_array_equal(stocked.orders, [[30]])
+
+
 def test_lost_sales_are_not_backordered():
     result = simulate_periodic_review(
         [[4, 4, 0, 0]],

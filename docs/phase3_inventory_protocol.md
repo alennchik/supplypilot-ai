@@ -1,6 +1,6 @@
 # Phase 3 inventory simulation protocol
 
-**Status: DRAFT v0.2 (revised after review). Not frozen.**
+**Status: DRAFT v0.3 (revised after two reviews). Not frozen.**
 
 To freeze it, the maintainer:
 
@@ -83,7 +83,7 @@ S(i, t) = F(i, t) + z * sqrt(F(i, t))
 
 ## 7. Perfect-foresight policy reference
 
-The reference uses `S(i, t)` = the **actual** demand over the protection interval, with `z = 0`. It is a reference with future information, not a feasible method. It is the only place where future demand drives orders.
+The reference uses `S(i, t)` = the **actual** demand over the protection interval, with `z = 0`. It is a reference with future information, not a feasible method. It is the only method whose order-up-to levels use future demand. The primary starting stock (Section 8) also uses future demand, for every method.
 
 **What it shows, under stated conditions:** with the primary starting stock (Section 8), the reference ends every day holding exactly the demand that must be served before the next scheduled delivery. Any policy with the same review days and lead time that loses no sales must hold at least that much on every day. Under these conditions it is therefore the minimum average stock compatible with a 100% fill rate, and a test checks this property day by day.
 
@@ -93,14 +93,15 @@ It does not bound policies with a different delivery schedule, such as daily del
 
 ## 8. Initial state and end of span
 
-- **Primary start:** each series begins with on-hand stock equal to its observed demand over the first `L` simulated days, with no outstanding orders. The value is identical for every method and `z`. No forecaster or ordering decision sees it.
+- **Primary start:** each series begins with on-hand stock equal to its observed demand over the first `L` simulated days, with no outstanding orders. The value is identical for every method and `z`.
+- **This start uses future demand.** It is never a forecasting input, but it does enter decisions. The starting stock is part of the inventory position at the first reviews, so it changes the first orders. For example, with a target of 100 units, an empty start orders 100, while a start of 70 orders 30. No store could set up this stock in advance without knowing future demand, so it is an idealized experimental condition. It is the same for every method, but that does not guarantee it affects every method equally.
 - **Why not an empty start:** with zero stock, the first order also covers demand that is lost before it arrives. For a rare-demand series that surplus can remain for the whole window. Example: with 10 units a day for a week, then nothing, and `L = 7`, an empty start leaves 70 units on the shelf to the end of the span, after any warm-up. The primary start removes this surplus by construction.
-- **Sensitivity:** the empty start is also run on the same evaluation window and reported next to the primary results. Other starting effects cannot be ruled out in general, so the conclusion is checked against this sensitivity run rather than assumed.
+- **Sensitivity:** the empty start is also run on the same evaluation window, with the same endpoint and bootstrap, and reported next to the primary results. Starting effects cannot be ruled out in general. If the empty-start verdict (Section 11) differs from the primary verdict, the result is reported as dependent on the starting state, and the primary result is not presented as a robust advantage of either method.
 - **End of span:** there is no terminal valuation. Metrics use evaluation days only, and orders arriving after 2016-04-24 never count.
 
 ## 9. Information rules
 
-- At review `t`, a decision may use only that method's forecast from origin `t` and the simulated inventory position. Future demand is never used, except by the labelled perfect-foresight reference and the starting stock in Section 8.
+- At review `t`, a decision may use only that method's forecast from origin `t` and the simulated inventory position. Forecasts never use future demand. Future demand enters the simulation in only two places: the perfect-foresight reference's targets, and the primary starting stock (Section 8), which changes the first orders of every method.
 - Both forecasters see the **external** M5 sales history, not the simulated sales. Simulated stockouts do not censor what the forecasters see. This isolates forecast quality but leaves out the feedback loop of a real store.
 - The frozen model is not refitted after 2016-01-03. It sees new sales through its features at every origin, but its learned relationships stay those of the October 2015 – January 2016 training period; for example, target months 2–4 were never seen in training. This may handicap LightGBM later in the span. It is accepted as a conservative choice and disclosed.
 - These windows were already exposed in Phase 1 and Phase 2. Every Phase 3 parameter is fixed in this document before any Phase 3 run, and nothing is tuned on Phase 3 outcomes.
@@ -158,6 +159,7 @@ It is computed only when both endpoints are `exact` or `interpolated`. Otherwise
 - **LightGBM needs less inventory:** the whole interval is below 0 and not inside the band.
 - **MA28 needs less inventory:** the whole interval is above 0 and not inside the band.
 - Otherwise the result is **inconclusive**.
+- **Starting-state check:** if the empty-start verdict differs from the primary verdict, the conclusion is reported as dependent on the starting state (Section 8).
 - The interval describes uncertainty from resampling items within this cohort and this 12-week period. Store-wide and calendar shocks shared across items are not captured, and the conclusion does not transfer to other years, stores or policy families.
 
 Secondary analyses are descriptive and have no decision rule:
@@ -184,6 +186,7 @@ If any check fails, the run stops without writing results.
 - Lost sales only: no backorders, substitution or cross-store transfers.
 - Deterministic lead times, unlimited supplier capacity, no minimum order quantities or case packs, no shelf capacity, no perishability, no fixed ordering cost.
 - Each product-store series is simulated independently, as a single echelon.
+- The primary scenario starts from an idealized stock equal to the actual demand of the first `L` days. A real store could not set this up without knowing future demand, and it influences the first orders.
 - The comparison is between forecasters inside one policy family (`S = F + z·sqrt(F)`, weekly review, lost sales).
 - Results describe a 2,996-series sample over 12 evaluation weeks in early 2016, not the full M5 population or production use. They are simulation results under these assumptions, not measured savings of a real business.
 
@@ -200,12 +203,16 @@ If any check fails, the run stops without writing results.
 
 1. `ceil` ordering as primary, with round-half-up only as a robustness check.
 2. `S = F + z·sqrt(F)` with `z` from 0 to 3.0 in steps of 0.1 (31 values).
-3. Starting stock equal to each series' demand over the first `L` days, the same for all methods. An empty-start sensitivity run, a 28-day warm-up, and evaluation from 2016-02-01 to 2016-04-24.
+3. Starting stock equal to each series' demand over the first `L` days, the same for all methods. It is idealized: it uses future demand and changes the first orders. An empty-start sensitivity run gets the same endpoint and bootstrap; if its verdict differs, the result is reported as dependent on the starting state. A 28-day warm-up, and evaluation from 2016-02-01 to 2016-04-24.
 4. `L` ∈ {7 primary, 3, 1}, with `R = 7` and Sunday reviews.
 5. Primary endpoint: interpolated inventory at 95% fill for `L = 7`, reported with its status, both bracketing points and the first simulated point at or above 95%.
 6. Paired item-cluster percentile bootstrap: 2,000 resamples, seed 42. Equivalence is claimed only if the whole interval is inside ±2%.
 7. Inclusion of the perfect-foresight policy reference, with the conditions in Section 7.
 8. Value proxy and illustrative cost as defined in Section 10 (25% per year holding; penalty 0.25, 0.5 or 1.0 times the value proxy).
+
+## Changes from v0.2
+
+- **Starting stock:** the claim that no decision sees it is withdrawn. It uses future demand and changes the first orders through the inventory position, and this is now described in Sections 7, 8, 9 and 13. A preregistered rule is added: if the empty-start verdict differs from the primary one, the result is reported as dependent on the starting state.
 
 ## Changes from v0.1
 

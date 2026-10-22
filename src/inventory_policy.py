@@ -37,6 +37,10 @@ def initial_stock_covering_lead_time(demand, lead_time_days: int) -> np.ndarray:
     start would instead make the first order include demand that is already
     lost before the delivery arrives; for rare-demand series that surplus can
     stay on the shelf for the whole evaluation window.
+
+    This is an idealized condition: it uses actual future demand, and because
+    it is part of the inventory position it changes the first orders. It is
+    never a forecasting input.
     """
     values = _validate_demand_matrix(demand)
     lead_time = validate_day_count(lead_time_days, "Lead time", minimum=0)
