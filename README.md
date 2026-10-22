@@ -6,7 +6,9 @@
 
 SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and, in later phases, supporting data-driven inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
 
-**Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE. **The frozen final-evaluation implementation is available, with synthetic verification; real-data preflight and final ML scoring remain unrun.** Inventory optimization, end-to-end inference from new raw sales files, and the dashboard remain future work.
+**Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both development cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE.
+
+**Issue #28 status:** implementation **completed**; real-data blind preflight and the one-time final metrics reveal **completed** at source commit `fa201bc741dc`; publication **pending this documentation change**. [Final results](#completed-final-results) favor LightGBM on daily WAPE and MAE, and MA28 on weekly WAPE, 28-day WAPE, and RMSE. Independent reproduction of this final run was **not performed**. Phase 3 inventory simulation comparing ML and MA28 under identical assumptions is next; no inventory benefit has been measured. End-to-end inference from new raw sales files and the dashboard remain future work.
 
 ## Highlights
 
@@ -16,6 +18,7 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - **Phase 1 baseline benchmark:** MA28 had **74.38% pooled WAPE** across the four later windows, versus **86.98%** for seasonal naive and **97.96%** for naive; these figures **must not** be compared directly with Phase 2 V2 WAPE.
 - **Phase 2 model selection:** 9 preregistered LightGBM candidates, 2,992 fixed V1/V2 series, and 83,776 V2 forecasts per candidate. Selected Tweedie (8 origins): **80.8670% WAPE**, **0.9832 MAE**, **2.4318 RMSE**; MA28 on those V2 rows: **83.4165% WAPE**.
 - **Calendar-Aware Cycle 2:** adopted 8-origin Tweedie: **79.8558% daily**, **42.5783% pooled weekly**, **32.1468% 28-day aggregated WAPE**; both candidates and the adoption decision reproduced in two independent runs. See [results and limitations](#completed-cycle-2-results).
+- **Completed frozen final evaluation:** LightGBM **73.5035% daily pooled WAPE** versus MA28 **74.3784%** on 2,996 series and four windows: approximately **0.875 percentage points**, or **1.18% relative error reduction**. MA28 wins the aggregated WAPE metrics and RMSE; see [final results and limitations](#completed-final-results).
 - **Cycle 1 reproducibility:** second run matched all nine WAPE scores within `1e-9` and all nine `best_iteration` values exactly; **11,744 V1 learning-curve points** recorded.
 - Automated unit and integration tests cover both ML cycles; run Pytest and Ruff with the commands below. GitHub Actions CI checks changes on pull requests and on `main`.
 - Wide Parquet storage is **73.2% smaller** than CSV, with **17.94× faster** median full-table loading in the measured local benchmark (not a universal performance guarantee).
@@ -52,7 +55,8 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - Generate reproducible ML training Parquet and a JSON dataset manifest; train a global LightGBM regressor across all 28 forecast horizons, save/load the model and category vocabulary, and record a model-training manifest.
 - Predict nonnegative daily demand from **already-prepared origin-relative feature rows**. Select and evaluate global regression, Poisson, and Tweedie LightGBM models on fixed V1/V2 validation windows using early stopping and pooled WAPE; generate MAE/RMSE, learning curves, resource reports, and MA28 diagnostics.
 - Opt into Calendar-Aware Cycle 2: add seven scheduled target-date predictors, compare two frozen Tweedie configurations, report daily/weekly/28-day WAPE for four matched methods, and apply the preregistered adoption rule automatically. Completed results and the reproduced adoption decision are documented below for the fixed sampled cohort.
-- **Not yet implemented:** automated end-to-end inference from a new raw sales-history file or LightGBM scoring on the later four-window final benchmark.
+- Complete the frozen four-window final ML benchmark with one fit, blind structural preflight, and a separate one-time metrics reveal; saved results and publication provenance are documented below.
+- **Not yet implemented:** automated end-to-end inference from a new raw sales-history file.
 
 ### Quality and Automation
 
@@ -374,7 +378,7 @@ Reports are recomputable from the M5 inputs. The script uses temporary files and
 
 ## Phase 2: Leakage-Safe Features, Global LightGBM, and Validation
 
-This phase creates training examples for a **global, direct multi-horizon LightGBM forecasting model**. The dataset generator, model-training and persistence pipeline, and **nine-candidate preregistered V1/V2 validation experiment** are implemented and tested. The selected model is fixed **for this first validation cycle**; later model improvements must be recorded as separate cycles. **Final ML evaluation on the later four-window benchmark has not been run.**
+This phase creates training examples for a **global, direct multi-horizon LightGBM forecasting model**. The dataset generator, model-training and persistence pipeline, and **nine-candidate preregistered V1/V2 validation experiment** are implemented and tested. The selected model is fixed **for this first validation cycle**; later model improvements must be recorded as separate cycles. The subsequent Calendar-Aware Cycle 2 and [frozen final evaluation](#completed-final-results) are complete; final-results publication is pending this documentation change.
 
 ### Feature design
 
@@ -468,7 +472,7 @@ python -m scripts.train_ml_model
 
 The training script validates the `(series_id, origin, horizon)` keys, 28-day paths, target dates, and cutoff; loads the saved model and checks the same complete 28-day prediction path against the in-memory model. Tests cover saved-schema compatibility, invalid targets/horizons, unseen categories, feature inclusion and exclusion, duplicates, incomplete paths, and saved-model reload. The output files are written directly and **are not a multi-file atomic transaction**.
 
-**Still not implemented:** automated end-to-end inference from arbitrary new raw sales files. The frozen four-window **final ML benchmark runner is implemented**, but real-data preflight and scoring remain pending. The calendar-aware second-cycle experiments and independent reproduction are complete on the fixed sampled cohort. The Phase 1 four-window WAPE numbers apply **only to the three baseline models**; they are not directly comparable with the separate V2 LightGBM validation results below.
+**Still not implemented:** automated end-to-end inference from arbitrary new raw sales files. The frozen four-window **final ML benchmark implementation and real-data evaluation are complete**, with [results reported separately](#completed-final-results). The calendar-aware second-cycle experiments and their independent reproduction are also complete on the fixed sampled cohort; the final evaluation itself was not independently reproduced. The Phase 1 four-window WAPE numbers apply **only to the three baseline models**; they are not directly comparable with the separate V2 LightGBM validation results below.
 
 ## Preregistered V1/V2 LightGBM Validation
 
@@ -492,7 +496,7 @@ The first ML development cycle compared **nine fixed LightGBM configurations** f
 
 Training sets have between **668,808** and **2,662,072** supervised examples. Every target in model fitting is on or before the training cutoff. V1 is supplied only to the LightGBM evaluation/early-stopping callback; V2 targets are never passed into `fit()`. Evaluation predictions are joined to their expected target keys one-to-one. The cohort and validation dates are checked explicitly.
 
-**Important evaluation boundary:** baseline forecasts on the *later* four-window protocol (January 4–April 24, 2016) had already been inspected during Phase 1. They are retained as frozen context and must **not** inform LightGBM candidate or feature selection. **No LightGBM predictions have been scored on those final windows** in this cycle. Accordingly, V2 performance is a **development/selection result**, not an untouched final-test estimate.
+**Important evaluation boundary:** baseline forecasts on the *later* four-window protocol (January 4–April 24, 2016) had already been inspected during Phase 1. They are retained as frozen context and must **not** inform LightGBM candidate or feature selection. Those windows were excluded from this development cycle; the subsequent frozen final ML evaluation is [reported separately](#completed-final-results). V2 performance remains a **development/selection result**, not an untouched final-test estimate.
 
 ### Results: all nine candidate configurations
 
@@ -579,7 +583,7 @@ The initial outputs were separately backed up locally under `reports/first_run/`
 
 ## Calendar-Aware LightGBM Cycle 2
 
-[Issue #26](https://github.com/alennchik/supplypilot-ai/issues/26) preregistered a second development cycle testing scheduled target-date calendar information against the frozen Cycle 1 winner. **Both candidate experiments, the adoption decision, and independent reproduction are complete**, with reports in [`first_run/`](reports/cycle2_calendar/first_run/) and [`repro_run/`](reports/cycle2_calendar/repro_run/). Every original `reports/ml_validation_*` file is preserved. Results cover the fixed **2,992 eligible series and 83,776 V2 observations** from the 3,000-series sample, not the full **30,490-series** population. **The final ML holdout has not been evaluated.**
+[Issue #26](https://github.com/alennchik/supplypilot-ai/issues/26) preregistered a second development cycle testing scheduled target-date calendar information against the frozen Cycle 1 winner. **Both candidate experiments, the adoption decision, and independent reproduction are complete**, with reports in [`first_run/`](reports/cycle2_calendar/first_run/) and [`repro_run/`](reports/cycle2_calendar/repro_run/). Every original `reports/ml_validation_*` file is preserved. Results cover the fixed **2,992 eligible series and 83,776 V2 observations** from the 3,000-series sample, not the full **30,490-series** population. The subsequent frozen final ML benchmark is complete and [reported separately](#completed-final-results).
 
 ### Exactly seven added predictors
 
@@ -743,7 +747,7 @@ Peak RSS is the **whole-process cumulative high-water mark**, not per-model memo
 
 ### Evaluation limits and next step
 
-V2 is reused for a **second development cycle**, increasing susceptibility to selection optimism. Cycle 2 V2 scores remain development results, **not unbiased final generalization metrics**. The later baseline windows were already inspected during Phase 1, which limits the independence of any later comparison and must be disclosed. Freeze the implementation and adoption decision before a separate, **once-only** final ML evaluation on those later dates; no final ML scoring or tuning belongs to this issue. Larger-tree, quantile, inventory, dashboard, and arbitrary user-CSV work remains outside this cycle.
+V2 is reused for a **second development cycle**, increasing susceptibility to selection optimism. Cycle 2 V2 scores remain development results, **not unbiased final generalization metrics**. The later baseline windows were already inspected during Phase 1, which limits the independence of the final comparison. The implementation and adoption decision were frozen before the separate, **once-only** final ML evaluation completed under [Issue #28](#frozen-final-ml-benchmark--issue-28); its results do not authorize retuning. Larger-tree, quantile, inventory, dashboard, and arbitrary user-CSV work remains outside this cycle.
 
 ## Preliminary One-Step-Ahead Forecasting (Legacy Sanity Check)
 
@@ -764,7 +768,43 @@ python -m scripts.evaluate_baselines
 
 ## Frozen final ML benchmark — Issue #28
 
-[Issue #28](https://github.com/alennchik/supplypilot-ai/issues/28) freezes the final protocol. The implementation and synthetic tests are available in `src/ml_final_evaluation.py`, `scripts/run_ml_final_evaluation.py`, and the two corresponding test modules. **No real M5 final training, preflight, or accuracy reveal was executed while implementing this work. There are no final ML findings to report yet.** Phase 2 remains in progress until the reviewed implementation is committed, the authorized final run is published regardless of outcome, and the final evaluation PR is merged.
+[Issue #28](https://github.com/alennchik/supplypilot-ai/issues/28) freezes the final protocol. The implementation and synthetic tests are complete in `src/ml_final_evaluation.py`, `scripts/run_ml_final_evaluation.py`, and the two corresponding test modules. **The real-data blind preflight and separate one-time metrics reveal have succeeded at source commit `fa201bc741dc448b3d3d62dfc8bf7d948c4bbcd5`. Publication is pending this documentation change.** The original preflight records `source_dirty: true`; its saved source hashes describe the evaluated working tree. The documentation edits here follow the completed reveal and do not change the evaluated artifacts.
+
+### Completed final results
+
+The frozen evaluation uses **2,996 series**, **four 28-day windows** (January 4–April 24, 2016), and **335,552 predictions per method**. LightGBM was fitted **once**, with **1,743 realized trees** and training labels through **2016-01-03**, then reused at all four origins without refitting. All four methods share identical target rows. These are sampled-cohort results, not full-population M5 results.
+
+Values below are transcribed from the saved [`overall.csv`](reports/ml_final_evaluation/primary/reveal/overall.csv), with WAPE rounded to four decimals and daily MAE/RMSE to six. Lower is better. Weekly and 28-day columns are pooled WAPE after aggregation within each series and origin; MAE and RMSE refer to daily predictions.
+
+| Method | Daily pooled WAPE | Pooled weekly WAPE | Pooled 28-day WAPE | Daily MAE | Daily RMSE |
+|---|---:|---:|---:|---:|---:|
+| LightGBM: `cycle2_tweedie_8_origins_calendar` | **73.5035%** | 41.4186% | 32.3364% | **1.057918** | 2.686252 |
+| MA28: `moving_average_28` | 74.3784% | **40.2113%** | **30.7476%** | 1.070511 | **2.599895** |
+| `seasonal_naive` (7 days) | 86.9842% | 44.4351% | 37.1416% | 1.251943 | 3.095598 |
+| `naive` | 97.9563% | 82.6600% | 79.9612% | 1.409862 | 3.499224 |
+
+LightGBM wins the **primary daily pooled WAPE** metric and daily MAE. Against MA28, daily WAPE falls by approximately **0.875 percentage points**, a **1.18% relative reduction** (`(74.37843571558723 - 73.5034763960073) / 74.37843571558723 × 100`). MA28 wins weekly WAPE, 28-day WAPE, and daily RMSE, so the outcome depends on the metric and aggregation period.
+
+The saved [`by_window.csv`](reports/ml_final_evaluation/primary/reveal/by_window.csv) shows lower ML daily WAPE than MA28 in **3 of 4 windows**; ML loses for February 1–28 (72.8208% versus 72.2758%). [`by_category.csv`](reports/ml_final_evaluation/primary/reveal/by_category.csv) shows ML wins daily WAPE in **all three categories: FOODS, HOBBIES, and HOUSEHOLD**. [`by_demand_group.csv`](reports/ml_final_evaluation/primary/reveal/by_demand_group.csv) shows ML wins for frequent and mixed demand but **loses for sparse-demand series** (120.0861% versus MA28's 115.2458%). These descriptive comparisons do not establish statistical significance or a universally superior model.
+
+The [`reveal/manifest.json`](reports/ml_final_evaluation/primary/reveal/manifest.json) records **`accuracy_calculations: 1`**, **`retrained: false`**, **`exceptions: []`**, and **`independent_reproduction: "not performed"`**. The field name `accuracy_calculations` counts scoring passes; **WAPE is an error metric, not accuracy**. Independent reproduction of the earlier development cycles does not reproduce this final run. These windows were previously exposed through Phase 1 baseline evaluation and are **not a completely untouched holdout**. The findings do not establish production readiness or inventory savings.
+
+### Publication files and provenance
+
+The minimal existing report files proposed for publication are these **six unchanged files** (11,103 bytes total):
+
+| Existing report | Purpose |
+|---|---|
+| [`primary/reveal/overall.csv`](reports/ml_final_evaluation/primary/reveal/overall.csv) | All four methods and overall metrics |
+| [`primary/reveal/by_window.csv`](reports/ml_final_evaluation/primary/reveal/by_window.csv) | Four-window diagnostics |
+| [`primary/reveal/by_category.csv`](reports/ml_final_evaluation/primary/reveal/by_category.csv) | Category diagnostics |
+| [`primary/reveal/by_demand_group.csv`](reports/ml_final_evaluation/primary/reveal/by_demand_group.csv) | Historical demand-sparsity diagnostics |
+| [`primary/reveal/by_horizon_week.csv`](reports/ml_final_evaluation/primary/reveal/by_horizon_week.csv) | Horizon-week diagnostics |
+| [`primary/reveal/manifest.json`](reports/ml_final_evaluation/primary/reveal/manifest.json) | Frozen protocol, reveal provenance, and limitations |
+
+Publish this README with the separate [`PUBLICATION_SUMMARY.md`](reports/ml_final_evaluation/primary/PUBLICATION_SUMMARY.md), a portable documentation summary derived from the saved preflight and reveal manifest. The original `primary/preflight.json` contains absolute local paths in `artifacts_dir`, `reports_dir`, and `execution.inputs.*.path`; preserve it locally without edits and omit it from this publication set. The summary retains selected recorded provenance and the original preflight SHA-256 referenced by the reveal manifest. It is not a replacement execution manifest. The proposed public reveal manifest contains no absolute paths or host/user identifiers; its runtime and peak RSS are measurements from the original local execution.
+
+Keep `primary_reserved.json`, `primary/reveal_started.json`, and `primary/score_completed.json` as local operational markers, outside this publication set. Raw data, per-row predictions, model binaries, and private `data/processed/ml_final_evaluation/primary/scored_result/` storage stay out of Git. Leave `reports/first_run/`, `reports/repro_run/`, and both existing `.patch` files untouched and outside this publication set. Do not stage the entire reports directory.
 
 ### Frozen methodology
 
@@ -776,9 +816,14 @@ The fitted model is reused without weight updates at origins **January 3, Januar
 
 The **2,996-series Phase 1 cohort** is selected once using 28 consecutive observed days through January 3, and retained in every window. Each method must contain **335,552** complete daily observations, giving **1,342,208** predictions across ML, `moving_average_28`, `seasonal_naive`, and `naive`. Before fitting, the runner independently recomputes forecasts with the unchanged Phase 1 implementations and requires exact agreement with the supplied baseline predictions; matching method names and finite values alone are insufficient. This forecast comparison calculates no accuracy metrics. It rejects missing series, duplicate keys, invalid dates/horizons, missing actuals, unequal actuals, and nonfinite or negative predictions. Alignment is exact on `(series_id, origin, date, horizon, actual)`. Metadata is matched to each cutoff-truncated history so a sampled series first observed later does not invalidate training. Later entrants remain outside the fixed final cohort; eligible test series are never silently removed.
 
-### Review, blind preflight, then explicit reveal
+### Historical workflow for a fresh authorized experiment
 
-The following commands document a later, explicitly authorized real-data workflow; they were **not run during implementation**. Review and commit this implementation personally before beginning. Running the module without an action prints only the protocol and reads no data:
+**Historical reference only: the primary preflight and reveal described above are already complete. Do not rerun them to publish these results.** The commands below describe the original workflow for a **fresh, explicitly authorized experiment**, not actions for this completed run. Preserve all existing artifacts, manifests, reservations, and reveal markers; choosing different paths does not authorize another primary experiment. Review and freeze the implementation before any fresh authorized experiment.
+
+<details>
+<summary>Historical protocol inspection, preflight, reveal, recovery, and reproduction instructions</summary>
+
+For that fresh authorized experiment, running the module without an action prints only the protocol and reads no data:
 
 ```bash
 python -m scripts.run_ml_final_evaluation
@@ -800,15 +845,11 @@ python -m scripts.run_ml_final_evaluation --reveal
 
 Reveal loads **existing prediction and grouping artifacts**, verifies their hashes and matching preflight manifests, checks unchanged sources, code revision, dependency versions, and input hashes, and scores without fitting or loading a model for prediction. Primary and reproduction reservations bind each run to one canonical report directory and artifact directory; copied manifests cannot authorize scoring, another reproduction, or publication from a different directory. Prediction and lookup Parquet files are copied in bounded 1 MiB chunks to private temporary snapshots, hashed, and parsed through those same snapshot handles. Replacing a source file after verification cannot substitute the bytes scored. Snapshots are processed one artifact at a time and require temporary disk space rather than an additional full-file RAM buffer. Do not edit source, README, tests, dependencies, inputs, or commit another revision between preflight and reveal. Dirty status is recorded honestly alongside source hashes; the intended real-data workflow starts from the user's reviewed commit.
 
-| Location | Contents | Commit? |
-|---|---|---|
-| `reports/ml_final_evaluation/primary/preflight.json` | Frozen protocol, structural checks, cohort/observation/input/source/artifact hashes, revision, dirty status, dependencies, runtime, cumulative peak RSS, limitations | Yes, after authorized execution |
-| `data/processed/ml_final_evaluation/primary/` | Preserved model, training vocabulary, daily predictions with labels, frozen category/demand-group lookup, matching manifest; after reveal, complete scored reports and checksums in `scored_result/` | No; ignored local artifacts |
-| `reports/ml_final_evaluation/primary/reveal/` | Overall and four diagnostic CSVs plus reveal manifest | Yes, after authorized execution |
+The original preflight report records the frozen protocol, structural checks, cohort/observation/input/source/artifact hashes, revision, dirty status, dependencies, runtime, cumulative peak RSS, and limitations. Private `data/processed/ml_final_evaluation/primary/` artifacts include the preserved model, vocabulary, daily predictions with labels, grouping lookup, and matching manifest; after reveal they also include complete scored reports and checksums in `scored_result/`. The separate public `reveal/` reports contain five diagnostic/overall CSVs and a reveal manifest. See the publication policy above for this completed run.
 
 Reports are confined to `reports/ml_final_evaluation/`; binaries and per-row artifacts are confined to ignored `data/processed/ml_final_evaluation/`. Fresh run subdirectories are required and existing files are never overwritten. Complete directories are published only after their writes succeed. Artifact and report publication are separate operations: if the final preflight report write fails, orphaned local artifacts may remain, but cannot be revealed without a matching success manifest. Record and resolve any pre-reveal failure before proceeding. Primary reservations and reveal-start markers are not automatically released after failure; preserve them for an explicit audit rather than starting another experiment under a new path.
 
-Reveal calculates accuracy once, persists all five scored CSVs and their manifest in ignored `scored_result/` storage, flushes files and directories to disk, and records integrity hashes in `score_completed.json` before public report publication. A transient publication failure retains this complete scored result and the failure disclosure. After resolving the write problem, recover with:
+Reveal calculates error metrics once, persists all five scored CSVs and their manifest in ignored `scored_result/` storage, flushes files and directories to disk, and records integrity hashes in `score_completed.json` before public report publication. A transient publication failure retains this complete scored result and the failure disclosure. The historical recovery command below applies only to such a failure; this completed run needs no recovery:
 
 ```bash
 python -m scripts.run_ml_final_evaluation --publish-only \
@@ -828,7 +869,9 @@ python -m scripts.run_ml_final_evaluation --reveal \
   --output-dir reports/ml_final_evaluation/reproduction
 ```
 
-The primary reveal must precede the reproduction reveal; all five metric tables must match exactly. The verification reservation is exclusive, including failed attempts. Do not use verification to make outcome-dependent changes.
+The primary reveal must precede the reproduction reveal; all five metric tables must match exactly. The verification reservation is exclusive, including failed attempts. Do not use verification to make outcome-dependent changes. **No independent reproduction was performed for the completed final run; these instructions do not authorize one.**
+
+</details>
 
 ### Metrics, diagnostics, and preregistered limitations
 
@@ -838,7 +881,7 @@ Reveal publishes `overall.csv`, `by_window.csv`, `by_category.csv`, `by_demand_g
 
 Training targets span **October 19, 2015–January 3, 2016**. Test months 2, 3, and 4 and possibly event categories were unseen during fitting. Trees do not automatically extrapolate a smooth month effect; unfamiliar categorical event values encode as missing. This preregistered limitation cannot trigger retuning. Phase 1 already exposed baseline results on these dates, so this is a **frozen final ML benchmark**, not an untouched holdout across project history. Cycle 2 reused V2, allowing selection optimism; the adoption rule is not a statistical significance test. WAPE measures forecast error, not classification accuracy, inventory savings, service levels, or production readiness.
 
-After the final outcome is published and Phase 2 is concluded, specify Phase 3 inventory simulation separately: on-hand inventory, lead times, holding costs, and shortage penalties must be explicit. Compare inventory outcomes under frozen forecasting methods before claiming business impact.
+The **next planned step is Phase 3 inventory simulation comparing ML and MA28 under identical assumptions** for on-hand inventory, lead times, replenishment policies, holding costs, and shortage penalties. These assumptions must be specified separately before comparing inventory outcomes. **No inventory benefit has been measured yet.** Phase 3 is not implemented by this documentation change.
 
 ## Exploratory Data Analysis
 
@@ -863,7 +906,7 @@ After the final outcome is published and Phase 2 is concluded, specify Phase 3 i
 | Testing and linting | Pytest, Ruff |
 | Collaboration and automation | Git, GitHub, GitHub Actions |
 
-**Planned:** final ML evaluation, replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
+**Planned:** replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
 
 ## Project Roadmap
 
@@ -881,7 +924,7 @@ After the final outcome is published and Phase 2 is concluded, specify Phase 3 i
 - [x] Performance breakdowns by window, category, and historically defined demand sparsity.
 - [x] Reproducible full-sample experiment script and version-controlled summary reports.
 
-### In progress — Phase 2: Machine learning
+### Evaluation complete; publication pending — Phase 2: Machine learning
 
 - [x] Implement leakage-safe lag and rolling features for multi-step ML forecasts.
 - [x] Build and validate a supervised 28-day training dataset with weekly origins and a reproducible M5 generation script.
@@ -891,14 +934,15 @@ After the final outcome is published and Phase 2 is concluded, specify Phase 3 i
 - [x] Preregister and implement Calendar-Aware Cycle 2 with seven predictors, two Tweedie candidates, aggregated metrics, automatic adoption rules, and separate reports.
 - [x] Run both Cycle 2 candidates on the fixed sampled cohort, independently reproduce their scores and best iterations, and document the adoption decision without rewriting first-cycle reports.
 - [x] Implement Issue #28 frozen final-model training, blind structural preflight, artifact-only metrics reveal, and synthetic tests.
-- [ ] Review and commit the implementation, run the blind real-data preflight, then explicitly reveal the final comparison with frozen Phase 1 baselines.
-- [ ] Analyze forecast limitations and uncertainty without tuning to test results.
+- [x] Complete the blind real-data preflight and one-time final metrics reveal at source commit `fa201bc741dc`, comparing all four methods on the frozen Phase 1 cohort.
+- [x] Document the mixed final outcome and forecast limitations without tuning to test results; disclose that independent final-run reproduction was not performed.
+- [ ] Publish the final results and portable provenance with this documentation change.
 
 ### Planned — Phase 3: Inventory optimization
 
 - [ ] Define and document inventory, lead-time, and cost assumptions absent from M5.
 - [ ] Implement replenishment rules, safety-stock policies, and simulation.
-- [ ] Compare service levels, stockouts, and inventory costs.
+- [ ] Compare ML and MA28 service levels, stockouts, and inventory costs under identical assumptions; no inventory benefit has been measured yet.
 
 ### Planned — Phase 4: Product interface
 
@@ -910,4 +954,4 @@ After the final outcome is published and Phase 2 is concluded, specify Phase 3 i
 
 The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Later inventory experiments will need explicit, documented assumptions.
 
-This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, preregistered Cycle 1 V1/V2 model selection with reproduced results, and completed Calendar-Aware Cycle 2 experiments with independently reproduced results and a preregistered adoption decision**. The selected LightGBM candidate outperformed MA28 **on V2** but has **not** been evaluated on the later frozen four-window final benchmark. Its operational usefulness is not established; no inventory optimizer has been implemented. Claims about inventory cost savings or real-world replenishment improvements are out of scope until those systems are built and evaluated.
+This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, two preregistered development cycles with independently reproduced results, and a completed frozen four-window final ML evaluation**. In the final benchmark, LightGBM improves daily pooled WAPE and MAE over MA28, while MA28 has lower weekly WAPE, 28-day WAPE, and RMSE. The final run was not independently reproduced, and Phase 1 had already exposed baseline results for these windows. Final-results publication is pending this documentation change. Operational usefulness is not established; Phase 3 will compare ML and MA28 inventory outcomes under identical explicit assumptions. No inventory benefit has been measured and no inventory optimizer has been implemented.
