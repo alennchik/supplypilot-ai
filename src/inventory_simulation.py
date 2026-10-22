@@ -18,6 +18,8 @@ from dataclasses import dataclass
 import numpy as np
 
 ORDER_TOLERANCE = 1e-9
+# "ceil" is the protocol's primary rule; "half_up" is its robustness check.
+ROUNDING_RULES = ("ceil", "half_up")
 
 # Far above any M5 value, and small enough that pooled sums over thousands of
 # series and days stay exact in int64 and float64.
@@ -128,19 +130,37 @@ def _validate_initial(initial_on_hand, n_series: int) -> np.ndarray:
     return values.astype(np.int64)
 
 
-def order_quantity(order_up_to, inventory_position) -> np.ndarray:
-    """Units needed to raise inventory position to at least the target.
+def _validate_rounding(rounding: str) -> str:
+    if rounding not in ROUNDING_RULES:
+        raise ValueError(f"Rounding must be one of {ROUNDING_RULES}")
 
-    The tolerance stops floating-point noise from adding a unit:
-    a target of 3.0000000001 with position 0 orders 3, not 4.
+    return rounding
+
+
+def order_quantity(order_up_to, inventory_position, rounding: str = "ceil") -> np.ndarray:
+    """Whole units to order so the inventory position meets the target.
+
+    "ceil" raises the position to at least the target (primary rule).
+    "half_up" rounds the gap to the nearest unit, halves up (robustness).
+    The tolerance stops floating-point noise from changing a decision:
+    with ceil a gap of 3.0000000001 orders 3, and with half_up a gap of
+    2.4999999999 orders 3.
     """
+    _validate_rounding(rounding)
     target = np.asarray(order_up_to, dtype=float)
     position = np.asarray(inventory_position, dtype=float)
 
     if not np.isfinite(target).all() or not np.isfinite(position).all():
         raise ValueError("Order-up-to levels and inventory positions must be finite")
 
-    needed = np.maximum(np.ceil(target - position - ORDER_TOLERANCE), 0)
+    gap = target - position
+
+    if rounding == "ceil":
+        needed = np.ceil(gap - ORDER_TOLERANCE)
+    else:
+        needed = np.floor(gap + 0.5 + ORDER_TOLERANCE)
+
+    needed = np.maximum(needed, 0)
 
     if (needed > MAX_UNITS).any():
         raise ValueError(
@@ -157,13 +177,16 @@ def simulate_periodic_review(
     lead_time_days: int,
     review_period_days: int = 7,
     initial_on_hand=None,
+    rounding: str = "ceil",
 ) -> SimulationResult:
     """Simulate every series independently under the same ordering rule.
 
     demand: series-by-day matrix of whole units for simulated days 1..N.
     order_up_to: series-by-review matrix of targets, one column per review
         time returned by review_times(N, review_period_days).
+    rounding: "ceil" (primary) or "half_up" (robustness check).
     """
+    _validate_rounding(rounding)
     units = _validate_demand(demand)
     n_series, n_days = units.shape
 
@@ -189,7 +212,7 @@ def simulate_periodic_review(
 
     def place_order(review: int, time: int) -> None:
         position = stock + outstanding
-        quantity = order_quantity(targets[:, review], position)
+        quantity = order_quantity(targets[:, review], position, rounding)
 
         position_before[:, review] = position
         orders[:, review] = quantity

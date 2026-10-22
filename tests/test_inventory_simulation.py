@@ -284,6 +284,39 @@ def test_order_quantity_rounds_up_without_floating_point_noise():
     )
 
 
+def test_half_up_rounding_orders_the_nearest_whole_unit():
+    np.testing.assert_array_equal(
+        order_quantity(
+            [3.2, 3.5, 3.49, 0.4, 0.5, 2.5 - 1e-12, 2.0],
+            [0, 0, 0, 0, 0, 0, 5],
+            rounding="half_up",
+        ),
+        [3, 4, 3, 0, 1, 3, 0],
+    )
+
+
+def test_rounding_rule_changes_small_orders_in_the_simulation():
+    demand = [[0, 1, 0, 0, 0, 0, 0]]
+
+    ceil = simulate_periodic_review(demand, [[0.4]], lead_time_days=0)
+    half_up = simulate_periodic_review(
+        demand, [[0.4]], lead_time_days=0, rounding="half_up"
+    )
+
+    # A target of 0.4 units: ceil keeps one unit, half-up keeps none.
+    np.testing.assert_array_equal(ceil.orders, [[1]])
+    np.testing.assert_array_equal(half_up.orders, [[0]])
+    assert ceil.lost.sum() == 0 and half_up.lost.sum() == 1
+
+
+def test_unknown_rounding_rule_is_rejected():
+    with pytest.raises(ValueError, match="Rounding"):
+        order_quantity([1.0], [0.0], rounding="floor")
+
+    with pytest.raises(ValueError, match="Rounding"):
+        simulate_periodic_review([[1]], [[1]], lead_time_days=0, rounding="banker")
+
+
 def test_order_quantity_rejects_non_finite_values():
     with pytest.raises(ValueError, match="finite"):
         order_quantity([np.nan], [0])
