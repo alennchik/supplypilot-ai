@@ -1,0 +1,88 @@
+{
+  "accuracy_calculations": 1,
+  "exceptions": [],
+  "independent_reproduction": "not performed",
+  "peak_process_rss_mib": 1179.55,
+  "prediction_sha256": "5b5317ef50bf2fcde8e635ac4380cf4f12d164c37b21e409d714cb2254ee0211",
+  "preflight_sha256": "1c3bafd437e173042650065c20b4054d33163d97372413c21338e5c993783371",
+  "protocol": {
+    "daily_rows_per_method": 335552,
+    "early_stopping": false,
+    "evaluation_origins": [
+      "2016-01-03",
+      "2016-01-31",
+      "2016-02-28",
+      "2016-03-27"
+    ],
+    "feature_columns": [
+      "horizon",
+      "sales_at_origin",
+      "sales_lag_1_at_origin",
+      "sales_lag_7_at_origin",
+      "sales_lag_14_at_origin",
+      "sales_lag_28_at_origin",
+      "rolling_mean_7",
+      "rolling_mean_28",
+      "rolling_mean_56",
+      "rolling_std_7",
+      "rolling_std_28",
+      "zero_fraction_28",
+      "zero_fraction_56",
+      "rolling_sum_7",
+      "rolling_sum_28",
+      "store_id",
+      "dept_id",
+      "cat_id",
+      "target_month",
+      "target_day_of_month",
+      "target_is_event",
+      "target_event_type_1",
+      "target_event_type_2",
+      "target_is_christmas",
+      "target_is_snap"
+    ],
+    "fits_per_run": 1,
+    "issue": 28,
+    "limitations": [
+      "Training targets span Oct 19, 2015\u2013Jan 3, 2016; test months 2\u20134 and possibly event types are unseen. Trees do not extrapolate smooth month effects; unseen categorical levels encode as missing.",
+      "Phase 1 baseline results already exposed these windows: this is a frozen ML benchmark, not a project-wide untouched holdout.",
+      "Cycle 2 reused V2; selection optimism is possible. Its adoption threshold does not establish statistical significance.",
+      "WAPE is forecast error, not classification accuracy or evidence of inventory cost savings, service levels, or production readiness."
+    ],
+    "methods": [
+      "cycle2_tweedie_8_origins_calendar",
+      "moving_average_28",
+      "seasonal_naive",
+      "naive"
+    ],
+    "model": "cycle2_tweedie_8_origins_calendar",
+    "parameters": {
+      "deterministic": true,
+      "force_col_wise": true,
+      "learning_rate": 0.05,
+      "min_child_samples": 20,
+      "n_estimators": 1743,
+      "n_jobs": 2,
+      "num_leaves": 31,
+      "objective": "tweedie",
+      "random_state": 42,
+      "tweedie_variance_power": 1.5
+    },
+    "series": 2996,
+    "total_predictions": 1342208,
+    "training_cutoff": "2016-01-03",
+    "training_origins": [
+      "2015-10-18",
+      "2015-10-25",
+      "2015-11-01",
+      "2015-11-08",
+      "2015-11-15",
+      "2015-11-22",
+      "2015-11-29",
+      "2015-12-06"
+    ],
+    "unseen_category_policy": "missing"
+  },
+  "retrained": false,
+  "runtime_seconds": 4.470825041178614
+}
