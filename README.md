@@ -2,15 +2,35 @@
 
 [![CI](https://github.com/alennchik/supplypilot-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/alennchik/supplypilot-ai/actions/workflows/ci.yml)
 
-**Reproducible Retail Demand Forecasting | Preregistered Inventory Simulation**
+**Retail demand forecasting and preregistered inventory simulation on Walmart M5 data**
 
-SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and testing whether those forecasts lead to better inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
+SupplyPilot AI forecasts daily demand for 3,000 Walmart product-store series from the [M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) and tests whether a more accurate forecast leads to better replenishment decisions. The final forecast benchmark and the inventory simulation each followed a protocol frozen before its run, and each was run exactly once.
 
-**Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both development cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE.
+**Main finding:** a global LightGBM model beat a 28-day moving average (MA28) on daily forecast error, with 1.18% lower daily WAPE. In the inventory simulation, however, LightGBM needed **18.5% more stock than MA28 for a 90% fill rate** at a 7-day lead time. Replenishment orders depend on demand totals over several days, and MA28 was more accurate on weekly and 28-day totals. The preregistered primary comparison, at a 95% fill rate and the same lead time, could not be computed because LightGBM never reached 95%.
 
-**Issue #28 status:** completed and published at source commit `fa201bc741dc`. [Final results](#completed-final-results) favor LightGBM on daily WAPE and MAE, and MA28 on weekly WAPE, 28-day WAPE, and RMSE. Independent reproduction of this final run was **not performed**.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="reports/phase3_inventory/figures/fill_rate_vs_stock_l7_dark.svg">
+  <img alt="Line chart of fill rate against average units on hand at a 7-day lead time. MA28's curve lies above LightGBM's at every stock level. LightGBM tops out at 92.2% fill while MA28 reaches 95%. For 90% fill, LightGBM needs 39,157 units and MA28 33,044. Perfect foresight serves all demand with 14,285 units." src="reports/phase3_inventory/figures/fill_rate_vs_stock_l7_light.svg">
+</picture>
 
-**Phase 3 status:** completed. A [preregistered inventory simulation](#phase-3-inventory-simulation-frozen-protocol-v10) compared the two methods under identical replenishment rules in one registered run. The primary endpoint (inventory needed for a 95% fill rate) is **not estimable**, because LightGBM never reached 95% on the preregistered grid. In the descriptive comparisons, MA28 had the better trade-off in every scenario: LightGBM needed **7.1–18.5% more inventory for a 90% fill rate**, depending on lead time. These are simulation results under explicit assumptions, not measured savings. A dashboard and inference from new raw sales files remain future work.
+| Area | What it covers |
+|---|---|
+| **Data** | 3,000 sampled product-store series and 4.55 million daily rows, stored as Parquet |
+| **Forecasting** | Naive, seasonal naive and MA28 baselines, and a global LightGBM (Tweedie) model, compared over four 28-day windows |
+| **Inventory** | A lost-sales periodic-review simulator: 2 forecasters × 3 lead times × 31 safety-stock levels, plus a perfect-foresight reference |
+| **Rigor** | Preregistered protocols, SHA-256 provenance checks, single registered runs, and 800+ automated tests in CI |
+
+**Jump to:** [Final ML benchmark](#frozen-final-ml-benchmark--issue-28) · [Inventory simulation](#phase-3-inventory-simulation-frozen-protocol-v10) · [Getting started](#getting-started) · [Roadmap](#project-roadmap) · [Scope and limitations](#data-and-scope-notes)
+
+## Project Status
+
+Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM development and the final benchmark, and the inventory simulation. Phase 4, a dashboard with CSV imports, is planned.
+
+**Development cycles:** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both development cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE.
+
+**Final ML benchmark (Issue #28):** completed and published at source commit `fa201bc741dc`. [Final results](#completed-final-results) favor LightGBM on daily WAPE and MAE, and MA28 on weekly WAPE, 28-day WAPE, and RMSE. Independent reproduction of this final run was **not performed**.
+
+**Inventory simulation (Phase 3):** completed. A [preregistered inventory simulation](#phase-3-inventory-simulation-frozen-protocol-v10) compared the two methods under identical replenishment rules in one registered run. The primary endpoint (inventory needed for a 95% fill rate) is **not estimable**, because LightGBM never reached 95% on the preregistered grid. In the descriptive comparisons, MA28 had the better trade-off in every scenario: LightGBM needed **7.1–18.5% more inventory for a 90% fill rate**, depending on lead time. These are simulation results under explicit assumptions, not measured savings. A dashboard and inference from new raw sales files remain future work.
 
 ## Highlights
 
@@ -68,6 +88,7 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - Compute pooled fill rate, stockout rate, average on-hand, deliveries, value-weighted metrics, illustrative costs, interpolated fill-rate endpoints and a paired item-cluster bootstrap (`src/inventory_metrics.py`).
 - Rebuild weekly LightGBM and MA28 forecast paths from hash-verified snapshots, and check them against Issue #28 and Phase 1 before any inventory metric is computed (`src/inventory_inputs.py`, `src/inventory_ml_forecasts.py`).
 - Run the frozen experiment once, with an exclusive run registration, sealed results with checksums, and publication without recomputation (`scripts/run_inventory_simulation.py`, `src/inventory_publication.py`).
+- Draw the fill-rate-versus-stock chart from the published reports in light and dark variants, with byte-identical output on every run (`src/inventory_plots.py`, `scripts/plot_inventory_tradeoff.py`).
 
 ### Quality and Automation
 
@@ -917,7 +938,7 @@ Fill rate is the share of demanded units that were sold. The data has no custome
 - **Inputs:** before any simulation, the runner traced every input to the published Issue #28 record and read only hash-verified snapshots.
 - **Consistency checks:** LightGBM forecasts at the four Issue #28 origins matched the saved predictions exactly (maximum absolute difference 0.0), and MA28 forecasts matched Phase 1 exactly. The cohort was the same 2,996 series (cohort hash `261f89bd…`).
 - **Execution:** one registered run at source commit `7d81e23` on macOS (arm64) with Python 3.13.1 and LightGBM 4.7.0, taking 294 seconds with a peak process RSS of 2,150 MiB. `git status` was not clean at run time, so the manifest records `source_dirty: true`. All 42 recorded source files in `src/` and `scripts/`, and the protocol document, match commit `7d81e23` byte for byte.
-- **Reports:** [`reports/phase3_inventory/primary/`](reports/phase3_inventory/primary/) holds the trade-off curves, endpoints, the perfect-foresight reference, group breakdowns, `summary.json`, `manifest.json` and `checksums.json`.
+- **Reports:** [`reports/phase3_inventory/primary/`](reports/phase3_inventory/primary/) holds the trade-off curves, endpoints, the perfect-foresight reference, group breakdowns, `summary.json`, `manifest.json` and `checksums.json`. The chart at the top of this README is drawn from these files by `scripts/plot_inventory_tradeoff.py` and saved in [`reports/phase3_inventory/figures/`](reports/phase3_inventory/figures/).
 
 ### Results
 
@@ -960,6 +981,7 @@ These are simulation results under stated assumptions, not measured savings of a
 
 ```bash
 .venv/bin/python -m scripts.run_inventory_simulation --checks-only   # provenance and consistency checks; computes no inventory metric
+.venv/bin/python -m scripts.plot_inventory_tradeoff                  # redraws the chart from the published reports
 ```
 
 `--checks-only` needs the processed M5 inputs and the local Issue #28 artifacts in `data/processed/ml_final_evaluation/primary/`, which are not in git. It stops if any hash differs from the published record. `--execute` performed the one registered run. It refuses to start while a registration, sealed results or the published report folder exists, and it never overwrites results. `--publish-only` republishes sealed results without recomputing them.
