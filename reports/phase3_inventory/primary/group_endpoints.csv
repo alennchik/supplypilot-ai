@@ -1,0 +1,13 @@
+group_type,group,series_count,target_fill_rate,method,status,inventory,lower_index,upper_index,first_reaching_index,lower_z,lower_fill_rate,lower_inventory,upper_z,upper_fill_rate,upper_inventory,first_reaching_z,first_reaching_fill_rate,first_reaching_inventory,relative_difference_lightgbm_vs_ma28
+demand_group,frequent,334,0.95,lightgbm,not_reached,,,,,,,,,,,,,,
+demand_group,frequent,334,0.95,ma28,interpolated,13600.293660531692,21.0,22.0,22.0,2.1,0.9493598411480223,13523.702380952382,2.2,0.9513454908696658,13761.27380952381,2.2,0.9513454908696658,13761.27380952381,
+demand_group,mixed,1584,0.95,lightgbm,not_reached,,,,,,,,,,,,,,
+demand_group,mixed,1584,0.95,ma28,not_reached,,,,,,,,,,,,,,
+demand_group,sparse,1078,0.95,lightgbm,not_reached,,,,,,,,,,,,,,
+demand_group,sparse,1078,0.95,ma28,not_reached,,,,,,,,,,,,,,
+cat_id,FOODS,1406,0.95,lightgbm,not_reached,,,,,,,,,,,,,,
+cat_id,FOODS,1406,0.95,ma28,not_reached,,,,,,,,,,,,,,
+cat_id,HOBBIES,560,0.95,lightgbm,not_reached,,,,,,,,,,,,,,
+cat_id,HOBBIES,560,0.95,ma28,interpolated,5862.217530487803,25.0,26.0,26.0,2.5,0.9499957599570342,5861.928571428572,2.6,0.9523136501116545,6019.892857142857,2.6,0.9523136501116545,6019.892857142857,
+cat_id,HOUSEHOLD,1030,0.95,lightgbm,interpolated,11616.39395238095,26.0,27.0,27.0,2.6,0.9493383474651435,11535.559523809523,2.7,0.9517035039793759,11824.511904761905,2.7,0.9517035039793759,11824.511904761905,0.051729227387208636
+cat_id,HOUSEHOLD,1030,0.95,ma28,interpolated,11045.042440476187,20.0,21.0,21.0,2.0,0.9488061872494412,10905.595238095239,2.1,0.9519991485436549,11278.559523809523,2.1,0.9519991485436549,11278.559523809523,0.051729227387208636
