@@ -69,70 +69,107 @@ def cohort_sha256(series_ids) -> str:
     return hashlib.sha256(canonical.to_csv(index=False).encode()).hexdigest()
 
 
-def verify_issue28_artifacts(
-    artifacts_dir,
-    published_manifest=PUBLISHED_REVEAL_MANIFEST,
-) -> dict:
-    """Check the saved Issue #28 artifacts back to the published results.
+def snapshot_verified(source, expected_sha256: str, destination, *, mismatch: str):
+    """Copy a file while hashing it; keep the private copy only if it matches.
 
-    The local preflight.json must be byte-identical to the one whose hash the
-    committed reveal manifest records, and predictions.parquet must match the
-    published prediction hash. Only then are the other artifact hashes in that
-    preflight trusted. A different set of files with its own consistent
-    preflight.json is rejected.
+    The experiment then reads the copy, so the bytes it uses are exactly the
+    bytes that were verified, even if the original changes afterwards.
     """
-    folder = Path(artifacts_dir)
-    manifest_path = folder / "preflight.json"
+    source, destination = Path(source), Path(destination)
+
+    if not source.is_file():
+        raise ValueError(f"Missing file: {source}")
+
+    digest = hashlib.sha256()
+
+    with source.open("rb") as reader, destination.open("xb") as writer:
+        for block in iter(lambda: reader.read(1024 * 1024), b""):
+            writer.write(block)
+            digest.update(block)
+
+    if digest.hexdigest() != expected_sha256:
+        destination.unlink()
+        raise ValueError(mismatch)
+
+    return destination
+
+
+def verified_snapshots(
+    artifacts_dir,
+    input_paths: dict,
+    folder,
+    published_manifest=PUBLISHED_REVEAL_MANIFEST,
+):
+    """Verify every Issue #28 file the experiment reads and snapshot it.
+
+    Chain: the committed reveal manifest -> the original preflight.json
+    (byte-identical, by its published hash) -> artifact and input hashes in
+    that preflight -> the files. A different set of files with its own
+    consistent preflight.json is rejected. Returns the preflight manifest,
+    snapshot paths by name, and the provenance hashes to record.
+    """
+    artifacts, folder = Path(artifacts_dir), Path(folder)
     published_path = Path(published_manifest)
 
     if not published_path.is_file():
         raise ValueError(f"Missing published Issue #28 manifest: {published_path}")
 
-    published = json.loads(published_path.read_text(encoding="utf-8"))
+    published_bytes = published_path.read_bytes()
+    published = json.loads(published_bytes)
 
     for key in ("preflight_sha256", "prediction_sha256"):
         if not isinstance(published.get(key), str) or len(published[key]) != 64:
             raise ValueError(f"Published Issue #28 manifest lacks {key}")
 
-    if not manifest_path.is_file():
-        raise ValueError(f"Missing Issue #28 preflight manifest: {manifest_path}")
-
-    if file_sha256(manifest_path) != published["preflight_sha256"]:
-        raise ValueError(
-            "Local preflight.json is not the one behind the published Issue #28 results"
-        )
-
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    preflight = snapshot_verified(
+        artifacts / "preflight.json",
+        published["preflight_sha256"],
+        folder / "preflight.json",
+        mismatch="Local preflight.json is not the one behind the published "
+        "Issue #28 results",
+    )
+    manifest = json.loads(preflight.read_text(encoding="utf-8"))
     recorded = manifest.get("artifact_sha256", {})
 
     if recorded.get("predictions.parquet") != published["prediction_sha256"]:
         raise ValueError("Preflight prediction hash differs from the published one")
 
-    for name in ISSUE28_ARTIFACTS:
-        path = folder / name
+    snapshots = {"preflight.json": preflight}
 
+    for name in ISSUE28_ARTIFACTS:
         if name not in recorded:
             raise ValueError(f"Preflight manifest has no hash for {name}")
 
-        if not path.is_file():
-            raise ValueError(f"Missing Issue #28 artifact: {name}")
+        snapshots[name] = snapshot_verified(
+            artifacts / name,
+            recorded[name],
+            folder / name,
+            mismatch=f"Issue #28 artifact changed: {name}",
+        )
 
-        if file_sha256(path) != recorded[name]:
-            raise ValueError(f"Issue #28 artifact changed: {name}")
+    recorded_inputs = manifest.get("execution", {}).get("inputs", {})
 
-    return manifest
-
-
-def verify_input_files(manifest: dict, paths: dict) -> None:
-    """Check data files against the input hashes recorded for Issue #28."""
-    records = manifest.get("execution", {}).get("inputs", {})
-
-    for name, path in paths.items():
-        if name not in records:
+    for name, path in input_paths.items():
+        if name not in recorded_inputs:
             raise ValueError(f"No recorded Issue #28 hash for input: {name}")
 
-        if file_sha256(path) != records[name]["sha256"]:
-            raise ValueError(f"Input differs from the Issue #28 run: {name}")
+        snapshots[name] = snapshot_verified(
+            path,
+            recorded_inputs[name]["sha256"],
+            folder / f"input_{name}{Path(path).suffix}",
+            mismatch=f"Input differs from the Issue #28 run: {name}",
+        )
+
+    provenance = {
+        "published_manifest_sha256": hashlib.sha256(published_bytes).hexdigest(),
+        "published_preflight_sha256": published["preflight_sha256"],
+        "published_prediction_sha256": published["prediction_sha256"],
+        "artifact_sha256": {name: recorded[name] for name in ISSUE28_ARTIFACTS},
+        "input_sha256": {
+            name: recorded_inputs[name]["sha256"] for name in input_paths
+        },
+    }
+    return manifest, snapshots, provenance
 
 
 def frozen_cohort(lookups: pd.DataFrame, manifest: dict, *, expected=EXPECTED_SERIES):
