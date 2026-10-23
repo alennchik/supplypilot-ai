@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/alennchik/supplypilot-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/alennchik/supplypilot-ai/actions/workflows/ci.yml)
 
-**Reproducible Retail Demand Forecasting | Inventory Planning in Development**
+**Reproducible Retail Demand Forecasting | Preregistered Inventory Simulation**
 
-SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and, in later phases, supporting data-driven inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
+SupplyPilot AI is a Python-based supply chain analytics project for forecasting retail demand and testing whether those forecasts lead to better inventory replenishment decisions. It uses the [Walmart M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) to build a reproducible data pipeline and evaluate forecasting methods on historical product-store sales.
 
 **Current status (October 2026):** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both development cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE.
 
-**Issue #28 status:** implementation **completed**; real-data blind preflight and the one-time final metrics reveal **completed** at source commit `fa201bc741dc`; publication **pending this documentation change**. [Final results](#completed-final-results) favor LightGBM on daily WAPE and MAE, and MA28 on weekly WAPE, 28-day WAPE, and RMSE. Independent reproduction of this final run was **not performed**. Phase 3 inventory simulation comparing ML and MA28 under identical assumptions is next; no inventory benefit has been measured. End-to-end inference from new raw sales files and the dashboard remain future work.
+**Issue #28 status:** completed and published at source commit `fa201bc741dc`. [Final results](#completed-final-results) favor LightGBM on daily WAPE and MAE, and MA28 on weekly WAPE, 28-day WAPE, and RMSE. Independent reproduction of this final run was **not performed**.
+
+**Phase 3 status:** completed. A [preregistered inventory simulation](#phase-3-inventory-simulation-frozen-protocol-v10) compared the two methods under identical replenishment rules in one registered run. The primary endpoint (inventory needed for a 95% fill rate) is **not estimable**, because LightGBM never reached 95% on the preregistered grid. In the descriptive comparisons, MA28 had the better trade-off in every scenario: LightGBM needed **7.1–18.5% more inventory for a 90% fill rate**, depending on lead time. These are simulation results under explicit assumptions, not measured savings. A dashboard and inference from new raw sales files remain future work.
 
 ## Highlights
 
@@ -19,8 +21,9 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - **Phase 2 model selection:** 9 preregistered LightGBM candidates, 2,992 fixed V1/V2 series, and 83,776 V2 forecasts per candidate. Selected Tweedie (8 origins): **80.8670% WAPE**, **0.9832 MAE**, **2.4318 RMSE**; MA28 on those V2 rows: **83.4165% WAPE**.
 - **Calendar-Aware Cycle 2:** adopted 8-origin Tweedie: **79.8558% daily**, **42.5783% pooled weekly**, **32.1468% 28-day aggregated WAPE**; both candidates and the adoption decision reproduced in two independent runs. See [results and limitations](#completed-cycle-2-results).
 - **Completed frozen final evaluation:** LightGBM **73.5035% daily pooled WAPE** versus MA28 **74.3784%** on 2,996 series and four windows: approximately **0.875 percentage points**, or **1.18% relative error reduction**. MA28 wins the aggregated WAPE metrics and RMSE; see [final results and limitations](#completed-final-results).
+- **Phase 3 inventory simulation:** one registered run of a frozen protocol on the same 2,996 series: 2 methods × 31 safety-stock levels × 3 lead times × 3 variants, plus a perfect-foresight reference. The primary endpoint is **not estimable**: at a 7-day lead time LightGBM tops out at **92.2%** fill, while MA28 reaches 95%. In the descriptive comparisons, LightGBM needed **7.1–18.5% more inventory for 90% fill**, and MA28 had lower illustrative cost at every grid point. See [Phase 3 results](#phase-3-inventory-simulation-frozen-protocol-v10).
 - **Cycle 1 reproducibility:** second run matched all nine WAPE scores within `1e-9` and all nine `best_iteration` values exactly; **11,744 V1 learning-curve points** recorded.
-- Automated unit and integration tests cover both ML cycles; run Pytest and Ruff with the commands below. GitHub Actions CI checks changes on pull requests and on `main`.
+- Automated unit and integration tests cover both ML cycles and the inventory simulation; run Pytest and Ruff with the commands below. GitHub Actions CI checks changes on pull requests and on `main`.
 - Wide Parquet storage is **73.2% smaller** than CSV, with **17.94× faster** median full-table loading in the measured local benchmark (not a universal performance guarantee).
 - **668,808 cutoff-bounded supervised ML rows** generated across eight weekly training origins, 28 forecast horizons, and 2,989 unique eligible series; 2.80 s generation time and 850.81 MiB process peak RSS on the local Mac benchmark.
 - **Initial model persistence smoke test:** 4.96 s fitting time for a separate 100-tree regression model, 451.70 MiB peak process RSS, and a successful 28-horizon save/reload test on a MacBook Air M2 (8 GB RAM). This preliminary test is distinct from the nine-candidate validation experiment.
@@ -57,6 +60,14 @@ SupplyPilot AI is a Python-based supply chain analytics project for forecasting 
 - Opt into Calendar-Aware Cycle 2: add seven scheduled target-date predictors, compare two frozen Tweedie configurations, report daily/weekly/28-day WAPE for four matched methods, and apply the preregistered adoption rule automatically. Completed results and the reproduced adoption decision are documented below for the fixed sampled cohort.
 - Complete the frozen four-window final ML benchmark with one fit, blind structural preflight, and a separate one-time metrics reveal; saved results and publication provenance are documented below.
 - **Not yet implemented:** automated end-to-end inference from a new raw sales-history file.
+
+### Inventory Simulation
+
+- Simulate weekly periodic-review, order-up-to replenishment with lost sales for all series at once, with configurable lead time, rounding rule and starting stock (`src/inventory_simulation.py`).
+- Build order-up-to levels `F + z·√F` from weekly forecast paths, plus a perfect-foresight policy reference (`src/inventory_policy.py`).
+- Compute pooled fill rate, stockout rate, average on-hand, deliveries, value-weighted metrics, illustrative costs, interpolated fill-rate endpoints and a paired item-cluster bootstrap (`src/inventory_metrics.py`).
+- Rebuild weekly LightGBM and MA28 forecast paths from hash-verified snapshots, and check them against Issue #28 and Phase 1 before any inventory metric is computed (`src/inventory_inputs.py`, `src/inventory_ml_forecasts.py`).
+- Run the frozen experiment once, with an exclusive run registration, sealed results with checksums, and publication without recomputation (`scripts/run_inventory_simulation.py`, `src/inventory_publication.py`).
 
 ### Quality and Automation
 
@@ -378,7 +389,7 @@ Reports are recomputable from the M5 inputs. The script uses temporary files and
 
 ## Phase 2: Leakage-Safe Features, Global LightGBM, and Validation
 
-This phase creates training examples for a **global, direct multi-horizon LightGBM forecasting model**. The dataset generator, model-training and persistence pipeline, and **nine-candidate preregistered V1/V2 validation experiment** are implemented and tested. The selected model is fixed **for this first validation cycle**; later model improvements must be recorded as separate cycles. The subsequent Calendar-Aware Cycle 2 and [frozen final evaluation](#completed-final-results) are complete; final-results publication is pending this documentation change.
+This phase creates training examples for a **global, direct multi-horizon LightGBM forecasting model**. The dataset generator, model-training and persistence pipeline, and **nine-candidate preregistered V1/V2 validation experiment** are implemented and tested. The selected model is fixed **for this first validation cycle**; later model improvements must be recorded as separate cycles. The subsequent Calendar-Aware Cycle 2 and [frozen final evaluation](#completed-final-results) are complete, and the final results are published.
 
 ### Feature design
 
@@ -768,7 +779,7 @@ python -m scripts.evaluate_baselines
 
 ## Frozen final ML benchmark — Issue #28
 
-[Issue #28](https://github.com/alennchik/supplypilot-ai/issues/28) freezes the final protocol. The implementation and synthetic tests are complete in `src/ml_final_evaluation.py`, `scripts/run_ml_final_evaluation.py`, and the two corresponding test modules. **The real-data blind preflight and separate one-time metrics reveal have succeeded at source commit `fa201bc741dc448b3d3d62dfc8bf7d948c4bbcd5`. Publication is pending this documentation change.** The original preflight records `source_dirty: true`; its saved source hashes describe the evaluated working tree. The documentation edits here follow the completed reveal and do not change the evaluated artifacts.
+[Issue #28](https://github.com/alennchik/supplypilot-ai/issues/28) freezes the final protocol. The implementation and synthetic tests are complete in `src/ml_final_evaluation.py`, `scripts/run_ml_final_evaluation.py`, and the two corresponding test modules. **The real-data blind preflight and separate one-time metrics reveal have succeeded at source commit `fa201bc741dc448b3d3d62dfc8bf7d948c4bbcd5`. The results are published below and in `reports/ml_final_evaluation/primary/`.** The original preflight records `source_dirty: true`; its saved source hashes describe the evaluated working tree. The documentation edits here follow the completed reveal and do not change the evaluated artifacts.
 
 ### Completed final results
 
@@ -881,7 +892,77 @@ Reveal publishes `overall.csv`, `by_window.csv`, `by_category.csv`, `by_demand_g
 
 Training targets span **October 19, 2015–January 3, 2016**. Test months 2, 3, and 4 and possibly event categories were unseen during fitting. Trees do not automatically extrapolate a smooth month effect; unfamiliar categorical event values encode as missing. This preregistered limitation cannot trigger retuning. Phase 1 already exposed baseline results on these dates, so this is a **frozen final ML benchmark**, not an untouched holdout across project history. Cycle 2 reused V2, allowing selection optimism; the adoption rule is not a statistical significance test. WAPE measures forecast error, not classification accuracy, inventory savings, service levels, or production readiness.
 
-The **next planned step is Phase 3 inventory simulation comparing ML and MA28 under identical assumptions** for on-hand inventory, lead times, replenishment policies, holding costs, and shortage penalties. These assumptions must be specified separately before comparing inventory outcomes. **No inventory benefit has been measured yet.** Phase 3 is not implemented by this documentation change.
+Phase 3 then tested whether these forecasts lead to better inventory decisions. See [Phase 3: Inventory Simulation](#phase-3-inventory-simulation-frozen-protocol-v10).
+
+## Phase 3: Inventory Simulation (frozen protocol v1.0)
+
+[Issue #31](https://github.com/alennchik/supplypilot-ai/issues/31) froze the [protocol](docs/phase3_inventory_protocol.md) before any inventory metric was computed on real data. [Issue #33](https://github.com/alennchik/supplypilot-ai/issues/33) and [Issue #34](https://github.com/alennchik/supplypilot-ai/issues/34) implemented the simulator and the weekly forecast inputs, and [Issue #36](https://github.com/alennchik/supplypilot-ai/issues/36) ran the experiment once.
+
+**Question:** under identical replenishment rules and the same historical demand, does replacing MA28 with the frozen Issue #28 LightGBM model give a better trade-off between fill rate and inventory held?
+
+### Design
+
+| Element | Frozen choice |
+|---|---|
+| Policy | Weekly periodic review (Sundays) with order-up-to level `S = F + z·√F`, where `F` is the method's forecast summed over the lead time plus the 7-day review period. Orders are rounded up to whole units. Unmet demand is lost; there are no backorders. |
+| Scenarios | Lead time `L` = 7 days (primary), 3 and 1; `z` from 0 to 3.0 in steps of 0.1; LightGBM, MA28, and a perfect-foresight policy reference |
+| Period | 16 weekly forecast origins (2016-01-03 to 2016-04-17); 112 simulated days with a 28-day warm-up; evaluation on 2016-02-01 to 2016-04-24 (84 days, 370,721 demanded units) |
+| Starting stock | Each series starts with its actual demand over the first `L` days. This is idealized: it uses future demand and changes the first orders. Two robustness variants each change one thing: an empty start, and round-half-up instead of round-up ordering. |
+| Primary endpoint | At `L` = 7, the relative difference `(LightGBM − MA28) / MA28` in average on-hand units at a 95% pooled fill rate, interpolated on each curve, with a paired bootstrap over 1,922 items (2,000 resamples) and a ±2% equivalence band |
+
+Fill rate is the share of demanded units that were sold. The data has no customer-level information.
+
+### Provenance and execution
+
+- **Inputs:** before any simulation, the runner traced every input to the published Issue #28 record and read only hash-verified snapshots.
+- **Consistency checks:** LightGBM forecasts at the four Issue #28 origins matched the saved predictions exactly (maximum absolute difference 0.0), and MA28 forecasts matched Phase 1 exactly. The cohort was the same 2,996 series (cohort hash `261f89bd…`).
+- **Execution:** one registered run at source commit `7d81e23` on macOS (arm64) with Python 3.13.1 and LightGBM 4.7.0, taking 294 seconds with a peak process RSS of 2,150 MiB. `git status` was not clean at run time, so the manifest records `source_dirty: true`. All 42 recorded source files in `src/` and `scripts/`, and the protocol document, match commit `7d81e23` byte for byte.
+- **Reports:** [`reports/phase3_inventory/primary/`](reports/phase3_inventory/primary/) holds the trade-off curves, endpoints, the perfect-foresight reference, group breakdowns, `summary.json`, `manifest.json` and `checksums.json`.
+
+### Results
+
+**Primary endpoint: not estimable.** LightGBM does not reach a 95% fill rate anywhere on the preregistered grid; its maximum is 92.2%, at `z` = 3.0. MA28 crosses 95% between `z` = 2.9 and 3.0, at an interpolated 51,465 units on hand on average. As the protocol requires, the two statuses are reported, no interval or comparative verdict is given, and the full curves are the result. Both robustness variants are also not estimable; with round-half-up ordering, neither method reaches 95% (MA28's maximum is 94.9%).
+
+Trade-off at `L` = 7 (primary start):
+
+| | LightGBM | MA28 |
+|---|---:|---:|
+| Fill rate at `z` = 0 | 78.0% | 82.9% |
+| Fill rate at `z` = 3.0 (top of the grid) | 92.2% | 95.0% |
+| Average units on hand at 90% fill (interpolated) | 39,157 | 33,044 |
+| Average units on hand at 95% fill (interpolated) | not reached | 51,465 |
+
+**Preregistered secondary analyses** are descriptive, with no interval and no decision rule:
+
+- **Inventory at 90% fill:** LightGBM needs 18.5% more than MA28 at `L` = 7, 10.3% more at `L` = 3, and 7.1% more at `L` = 1. The robustness variants give 6.2–18.9% across the three lead times. At 95%, the methods can be compared only at `L` = 1, where LightGBM needs 13.2% more (38,450 versus 33,980 units). Neither method reaches 98% in any scenario.
+- **Groups (`L` = 7, 95% fill):** both methods reach 95% only for HOUSEHOLD, where LightGBM needs 5.2% more. MA28 reaches it for frequent-demand items and for HOBBIES, and LightGBM does not. Neither method reaches it for mixed-demand, sparse-demand or FOODS series.
+- **Illustrative cost** (holding at 25% per year of the sell price, plus a lost-sale penalty of 0.25, 0.5 or 1.0 times the sell price): lower for MA28 at every `z`, penalty, lead time and variant. For both methods the lowest cost on the grid is at its upper edge, `z` = 3.0, so the cost-minimizing `z` may lie beyond the grid.
+- **Perfect-foresight reference:** it serves all demand with 14,285 units on hand on average at `L` = 7. MA28 holds 2.3 times as much at 90% fill, and LightGBM 2.7 times.
+
+**Reading the curves at equal stock.** This is a post-hoc summary of the published curves, by linear interpolation over the stock range both methods cover. MA28's fill rate is higher at every stock level: by 2.1–2.7 percentage points at `L` = 7, 1.2–1.6 at `L` = 3, and 1.0–1.2 at `L` = 1. The same holds in every demand group and category at `L` = 7. The gaps are largest in FOODS (2.7–3.5 points) and for frequent-demand items (2.6–3.0), and smallest in HOUSEHOLD (0.4–0.9).
+
+**Interpretation.** Issue #28 found LightGBM slightly better on daily WAPE but MA28 better on weekly and 28-day WAPE. Order quantities depend on forecasts summed over 8–14 days, so this result is consistent with the longer-horizon metrics. At every grid point LightGBM also held less stock than MA28 (9–12% less at `z` = 0), which is consistent with lower forecast sums. Why is not established. One untested candidate is a limitation already recorded in Issue #28: the model was fitted once, on targets from October 19, 2015 to January 3, 2016, so February to April never appeared in training. Its lag features are rebuilt at every origin, but its weights stay fixed, while MA28 is simply the mean of the latest 28 days.
+
+**Limitations.**
+
+- The primary endpoint is not estimable, and the secondary comparisons have no interval.
+- The grid stops at `z` = 3.0, which was not high enough for LightGBM to reach 95% fill with `√F` safety stock. Extending the grid now would be a post-hoc change, so it is not part of this result.
+- Observed sales are treated as demand; demand lost to Walmart's own stockouts is not recovered.
+- The primary starting stock is idealized, because it uses actual demand.
+- The model has lost sales only, deterministic lead times, and one policy family. It has no case packs, minimum orders, shelf capacity, perishability or fixed ordering cost.
+- Costs are illustrative and valued at sell price; they are not Walmart costs.
+- The scope is 2,996 sampled series over 12 evaluation weeks in early 2016.
+- The evaluation dates were already exposed in Phases 1 and 2. The protocol was frozen before any Phase 3 metric was computed.
+
+These are simulation results under stated assumptions, not measured savings of a real business.
+
+### Reproduce
+
+```bash
+.venv/bin/python -m scripts.run_inventory_simulation --checks-only   # provenance and consistency checks; computes no inventory metric
+```
+
+`--checks-only` needs the processed M5 inputs and the local Issue #28 artifacts in `data/processed/ml_final_evaluation/primary/`, which are not in git. It stops if any hash differs from the published record. `--execute` performed the one registered run. It refuses to start while a registration, sealed results or the published report folder exists, and it never overwrites results. `--publish-only` republishes sealed results without recomputing them.
 
 ## Exploratory Data Analysis
 
@@ -906,7 +987,7 @@ The **next planned step is Phase 3 inventory simulation comparing ML and MA28 un
 | Testing and linting | Pytest, Ruff |
 | Collaboration and automation | Git, GitHub, GitHub Actions |
 
-**Planned:** replenishment policies, safety stock, and inventory simulation; a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
+**Planned:** a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
 
 ## Project Roadmap
 
@@ -924,7 +1005,7 @@ The **next planned step is Phase 3 inventory simulation comparing ML and MA28 un
 - [x] Performance breakdowns by window, category, and historically defined demand sparsity.
 - [x] Reproducible full-sample experiment script and version-controlled summary reports.
 
-### Evaluation complete; publication pending — Phase 2: Machine learning
+### Completed — Phase 2: Machine learning
 
 - [x] Implement leakage-safe lag and rolling features for multi-step ML forecasts.
 - [x] Build and validate a supervised 28-day training dataset with weekly origins and a reproducible M5 generation script.
@@ -936,13 +1017,13 @@ The **next planned step is Phase 3 inventory simulation comparing ML and MA28 un
 - [x] Implement Issue #28 frozen final-model training, blind structural preflight, artifact-only metrics reveal, and synthetic tests.
 - [x] Complete the blind real-data preflight and one-time final metrics reveal at source commit `fa201bc741dc`, comparing all four methods on the frozen Phase 1 cohort.
 - [x] Document the mixed final outcome and forecast limitations without tuning to test results; disclose that independent final-run reproduction was not performed.
-- [ ] Publish the final results and portable provenance with this documentation change.
+- [x] Publish the final results and portable provenance.
 
-### Planned — Phase 3: Inventory optimization
+### Completed — Phase 3: Inventory simulation
 
-- [ ] Define and document inventory, lead-time, and cost assumptions absent from M5.
-- [ ] Implement replenishment rules, safety-stock policies, and simulation.
-- [ ] Compare ML and MA28 service levels, stockouts, and inventory costs under identical assumptions; no inventory benefit has been measured yet.
+- [x] Preregister and freeze the inventory protocol v1.0: lead times, ordering rule, safety stock, starting stock, metrics, primary endpoint and bootstrap (Issue #31).
+- [x] Implement the lost-sales periodic-review simulator, ordering policy and metrics (Issue #33), and the weekly forecast inputs with Issue #28 consistency checks (Issue #34).
+- [x] Run the frozen experiment once, with provenance checks and a registered single run, and publish the reports (Issue #36). The primary endpoint was not estimable; MA28 had the better fill-rate-versus-stock trade-off in every scenario.
 
 ### Planned — Phase 4: Product interface
 
@@ -952,6 +1033,6 @@ The **next planned step is Phase 3 inventory simulation comparing ML and MA28 un
 
 ## Data and Scope Notes
 
-The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Later inventory experiments will need explicit, documented assumptions.
+The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Phase 3 therefore states every inventory assumption explicitly in its frozen protocol.
 
-This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, two preregistered development cycles with independently reproduced results, and a completed frozen four-window final ML evaluation**. In the final benchmark, LightGBM improves daily pooled WAPE and MAE over MA28, while MA28 has lower weekly WAPE, 28-day WAPE, and RMSE. The final run was not independently reproduced, and Phase 1 had already exposed baseline results for these windows. Final-results publication is pending this documentation change. Operational usefulness is not established; Phase 3 will compare ML and MA28 inventory outcomes under identical explicit assumptions. No inventory benefit has been measured and no inventory optimizer has been implemented.
+This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, two preregistered development cycles with independently reproduced results, a completed frozen four-window final ML evaluation, and a preregistered inventory simulation**. In the final benchmark, LightGBM improves daily pooled WAPE and MAE over MA28, while MA28 has lower weekly WAPE, 28-day WAPE, and RMSE. The final run was not independently reproduced, and Phase 1 had already exposed baseline results for these windows. Phase 3 compared both methods in a preregistered inventory simulation. Its primary endpoint was not estimable, and MA28 had the better fill-rate-versus-stock trade-off in every scenario. These are simulation results under explicit assumptions, not measured savings of a real business. No inventory optimizer is implemented.
