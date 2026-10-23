@@ -1,0 +1,104 @@
+{
+  "conclusion": {
+    "code": "not_estimable",
+    "empty_start_verdict": "not_estimable",
+    "half_up_verdict": "not_estimable",
+    "primary_verdict": "not_estimable",
+    "statement": "The primary endpoint is not estimable: at least one method does not bracket a 95% fill rate within the z grid."
+  },
+  "primary": {
+    "ci_high": null,
+    "ci_low": null,
+    "confidence": 0.95,
+    "endpoint_lightgbm": {
+      "first_reaching_index": null,
+      "inventory": null,
+      "lower_index": null,
+      "status": "not_reached",
+      "upper_index": null
+    },
+    "endpoint_ma28": {
+      "first_reaching_index": 30,
+      "inventory": 51465.062877054734,
+      "lower_index": 29,
+      "status": "interpolated",
+      "upper_index": 30
+    },
+    "interval": "percentile",
+    "invalid_resamples": 2000,
+    "invalid_share": 1.0,
+    "lead_time": 7,
+    "n_clusters": 1922,
+    "n_resamples": 2000,
+    "point_estimate": null,
+    "reliable": false,
+    "target_fill_rate": 0.95,
+    "variant": "primary",
+    "verdict": "not_estimable"
+  },
+  "protocol_version": "1.0",
+  "rounding_check_agrees": true,
+  "sensitivity": {
+    "empty_start": {
+      "ci_high": null,
+      "ci_low": null,
+      "confidence": 0.95,
+      "endpoint_lightgbm": {
+        "first_reaching_index": null,
+        "inventory": null,
+        "lower_index": null,
+        "status": "not_reached",
+        "upper_index": null
+      },
+      "endpoint_ma28": {
+        "first_reaching_index": 30,
+        "inventory": 51382.90310846558,
+        "lower_index": 29,
+        "status": "interpolated",
+        "upper_index": 30
+      },
+      "interval": "percentile",
+      "invalid_resamples": 2000,
+      "invalid_share": 1.0,
+      "lead_time": 7,
+      "n_clusters": 1922,
+      "n_resamples": 2000,
+      "point_estimate": null,
+      "reliable": false,
+      "target_fill_rate": 0.95,
+      "variant": "empty_start",
+      "verdict": "not_estimable"
+    },
+    "half_up": {
+      "ci_high": null,
+      "ci_low": null,
+      "confidence": 0.95,
+      "endpoint_lightgbm": {
+        "first_reaching_index": null,
+        "inventory": null,
+        "lower_index": null,
+        "status": "not_reached",
+        "upper_index": null
+      },
+      "endpoint_ma28": {
+        "first_reaching_index": null,
+        "inventory": null,
+        "lower_index": null,
+        "status": "not_reached",
+        "upper_index": null
+      },
+      "interval": "percentile",
+      "invalid_resamples": 2000,
+      "invalid_share": 1.0,
+      "lead_time": 7,
+      "n_clusters": 1922,
+      "n_resamples": 2000,
+      "point_estimate": null,
+      "reliable": false,
+      "target_fill_rate": 0.95,
+      "variant": "half_up",
+      "verdict": "not_estimable"
+    }
+  },
+  "starting_state_dependent": false
+}
