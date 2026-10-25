@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { askWhatIf, fetchScenarios } from "./api.ts";
 import type { Answer, Question, Scenarios } from "./api.ts";
+import { AgentPanel } from "./components/AgentPanel.tsx";
 import { CostChart, TradeoffChart } from "./components/Charts.tsx";
 import { Controls } from "./components/Controls.tsx";
 import { SettingsNote, StatCards } from "./components/Stats.tsx";
@@ -81,6 +82,11 @@ export function App() {
 
   const provenance = scenarios?.provenance;
 
+  function applyAgentScenario(patch: Partial<Question>) {
+    setQuestion((current) => (current === null ? current : { ...current, ...patch }));
+    document.querySelector(".controls")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <div className="app">
       <header className="topbar">
@@ -92,6 +98,9 @@ export function App() {
           <nav aria-label="Main">
             <a className="nav-link is-current" href="./" aria-current="page">
               What-if
+            </a>
+            <a className="nav-link" href="#assistant">
+              Assistant
             </a>
             <a className="nav-link" href={`${REPOSITORY}#phase-3-inventory-simulation-frozen-protocol-v10`}>
               Method
@@ -139,6 +148,8 @@ export function App() {
             </div>
           </div>
         ) : null}
+
+        <AgentPanel onApply={applyAgentScenario} />
       </main>
 
       <footer className="footer">

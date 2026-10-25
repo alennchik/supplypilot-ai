@@ -153,3 +153,42 @@ export function askWhatIf(question: Question, signal?: AbortSignal): Promise<Ans
     signal,
   });
 }
+
+export interface AgentStatus {
+  configured: boolean;
+  provider: string | null;
+  model: string | null;
+  problem: string | null;
+}
+
+export interface AgentToolCall {
+  name: string;
+  arguments: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface AgentReply {
+  answer: string;
+  tool_calls: AgentToolCall[];
+  grounded: boolean;
+  unverified_numbers: string[];
+  revised: boolean;
+  stop_reason: "answered" | "step_limit";
+  provider: string;
+  model: string;
+  suggested_question: Partial<Question>;
+}
+
+export function fetchAgentStatus(signal?: AbortSignal): Promise<AgentStatus> {
+  return request<AgentStatus>("api/agent/status", { signal });
+}
+
+export function askAgent(question: string, signal?: AbortSignal): Promise<AgentReply> {
+  return request<AgentReply>("api/agent", {
+    method: "POST",
+    body: JSON.stringify({ question }),
+    headers: { "Content-Type": "application/json" },
+    signal,
+  });
+}

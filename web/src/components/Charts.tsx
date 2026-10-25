@@ -133,7 +133,8 @@ export function TradeoffChart({ answer }: { answer: Answer }) {
       </div>
       <p className="chart-note">
         Each line joins 31 simulated policies, from z = 0 on the left to z = 3.0 on the right; higher and
-        further left is better. Rings mark where a line meets the {target} target.
+        further left is better.
+        {markers.length > 1 ? ` Rings mark where a line meets the ${target} target.` : ""}
       </p>
       <LineChart
         label={`Fill rate against average units on hand for LightGBM and MA28 at a ${scenario.lead_time}-day lead time`}

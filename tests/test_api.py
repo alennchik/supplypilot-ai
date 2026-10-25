@@ -2,6 +2,7 @@
 
 import pytest
 
+from src.agent_models import ModelError, ModelTurn, ToolCall
 from src.inventory_whatif import load_reports, scenarios, what_if
 
 pytest.importorskip("fastapi")
@@ -20,7 +21,7 @@ def reports():
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
     no_web_app = tmp_path_factory.mktemp("no_web")
-    return TestClient(create_app(web_dir=no_web_app))
+    return TestClient(create_app(web_dir=no_web_app, agent=None))
 
 
 def test_health(client):
@@ -95,3 +96,95 @@ def test_the_built_web_app_is_served_beside_the_api(tmp_path):
 
 def test_without_a_build_only_the_api_is_served(client):
     assert client.get("/").status_code == 404
+
+
+class FakeAgentModel:
+    provider = "fake"
+    model = "test"
+
+    def __init__(self, turns=()):
+        self.turns = list(turns)
+
+    def complete(self, system, conversation, tools):
+        if not self.turns:
+            raise AssertionError("the model should not have been called")
+        return self.turns.pop(0)
+
+
+def test_the_agent_answers_with_its_tool_calls(tmp_path):
+    model = FakeAgentModel(
+        [
+            ModelTurn(
+                text="",
+                tool_calls=(
+                    ToolCall(
+                        "call-1",
+                        "stock_for_fill_rate",
+                        {"lead_time_days": 7, "target_fill_rate_percent": 90},
+                    ),
+                ),
+            ),
+            ModelTurn(text="LightGBM needs 39,157 units and MA28 needs 33,044."),
+        ]
+    )
+    client = TestClient(create_app(web_dir=tmp_path, agent=model))
+
+    status = client.get("/api/agent/status").json()
+    response = client.post("/api/agent", json={"question": "Stock for 90% at 7 days?"})
+
+    assert status == {
+        "configured": True,
+        "provider": "fake",
+        "model": "test",
+        "problem": None,
+    }
+    assert response.status_code == 200
+    body = response.json()
+    assert body["grounded"] is True
+    assert body["tool_calls"][0]["name"] == "stock_for_fill_rate"
+    assert body["tool_calls"][0]["result"]["ma28"]["average_units_on_hand"] == 33044
+    assert body["suggested_question"] == {"lead_time": 7, "target_fill_rate": 0.9}
+
+
+def test_the_agent_is_off_without_a_key(client):
+    status = client.get("/api/agent/status").json()
+    response = client.post("/api/agent", json={"question": "Hi"})
+
+    assert status["configured"] is False
+    assert response.status_code == 503
+    assert "ANTHROPIC_API_KEY" in response.json()["detail"]
+
+
+def test_provider_errors_become_502(tmp_path):
+    class Failing(FakeAgentModel):
+        def complete(self, system, conversation, tools):
+            raise ModelError("anthropic answered 529: overloaded")
+
+    client = TestClient(create_app(web_dir=tmp_path, agent=Failing()))
+
+    response = client.post("/api/agent", json={"question": "Stock for 90%?"})
+
+    assert response.status_code == 502
+    assert "overloaded" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"question": ""}, {"question": "   "}, {"question": "x" * 501}, {"q": "hi"}],
+)
+def test_bad_agent_questions_get_422(tmp_path, body):
+    client = TestClient(create_app(web_dir=tmp_path, agent=FakeAgentModel()))
+
+    assert client.post("/api/agent", json=body).status_code == 422
+
+
+def test_the_agent_model_comes_from_the_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("SUPPLYPILOT_AGENT_PROVIDER", "anthropic")
+    status = TestClient(create_app(web_dir=tmp_path)).get("/api/agent/status").json()
+    assert (status["configured"], status["provider"]) == (True, "anthropic")
+
+    monkeypatch.setenv("SUPPLYPILOT_AGENT_PROVIDER", "gemini")
+    status = TestClient(create_app(web_dir=tmp_path)).get("/api/agent/status").json()
+    assert status["configured"] is False
+    assert "must be one of" in status["problem"]

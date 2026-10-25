@@ -1,0 +1,323 @@
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-5-5",
+  "cases": 17,
+  "passed": 17,
+  "pass_rate": 1.0,
+  "results": [
+    {
+      "id": "stock-90-7d",
+      "passed": true,
+      "failures": [],
+      "answer": "For a 90% fill rate with the 7-day lead time (primary setup), MA28 needs less average stock than LightGBM.\n\n| Forecaster | Average units on hand | Safety factor z range |\n|---|---|---|\n| LightGBM | about 39,157 | between 2.1 and 2.2 |\n| MA28 | about 33,044 | between 1.1 and 1.2 |\n\n- LightGBM needs 18.5% more stock than MA28 to reach 90%.\n- Both figures are interpolated estimates between two simulated policies, not directly simulated points.\n- For comparison, the perfect-foresight reference needs 14,285 units for a 100% fill rate. It is a reference, not a method.\n- Across the tested range, LightGBM's best fill rate is 92.2% and MA28's is 95.0%.\n- This describes the 2016 M5 simulation only.",
+      "tool_calls": [
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 7,
+            "target_fill_rate_percent": 90
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "stock-95-7d-not-reached",
+      "passed": true,
+      "failures": [],
+      "answer": "Your question didn't give a lead time beyond 7 days, so this uses the primary 7-day lead time and the primary starting condition.\n\n- **LightGBM:** It doesn't reach a 95% fill rate. Its best fill rate anywhere in the tested safety-factor range (z from 0 to 3.0) is 92.2%.\n- **MA28:** It reaches 95%, but only at the top of the tested range. It needs about 51,465 average units on hand, across all series. This is an interpolated estimate between the simulated policies at z = 2.9 and z = 3.0.\n- **Comparison:** I can't give a stock difference between the two, because LightGBM never reaches the target.\n- **Reference:** Perfect foresight, which isn't a usable method, would need 14,285 units to reach 100%.",
+      "tool_calls": [
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 7,
+            "target_fill_rate_percent": 95
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "stock-90-every-lead-time",
+      "passed": true,
+      "failures": [],
+      "answer": "For a 90% fill rate, LightGBM needs more average stock than MA28 at every lead time. The gap grows as the lead time gets longer. These numbers use the primary starting condition. Every value is interpolated, so each is an estimate between two simulated policies.\n\n| Lead time | LightGBM units on hand | MA28 units on hand | LightGBM needs more |\n|---|---|---|---|\n| 1 day | 25,283 | 23,611 | 7.1% |\n| 3 days | 27,567 | 24,993 | 10.3% |\n| 7 days (primary) | 39,157 | 33,044 | 18.5% |\n\nThe 1-day and 3-day lead times are secondary scenarios. The 7-day lead time is the primary comparison.\n\nThis covers only the 2016 M5 simulation of 2,996 series.",
+      "tool_calls": [
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 1,
+            "target_fill_rate_percent": 90
+          },
+          "error": null
+        },
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 3,
+            "target_fill_rate_percent": 90
+          },
+          "error": null
+        },
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 7,
+            "target_fill_rate_percent": 90
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "stock-95-1d",
+      "passed": true,
+      "failures": [],
+      "answer": "At a 1-day lead time, MA28 needs less stock than LightGBM to reach a 95% fill rate. This is the primary starting condition. The 1-day lead time is a secondary scenario, not the protocol's primary comparison, which uses a 7-day lead time.\n\n| Method | Average units on hand for 95% fill | Between safety factors z |\n|---|---|---|\n| LightGBM | 38,450 | 2.9 and 3.0 |\n| MA28 | 33,980 | 2.0 and 2.1 |\n\n- **Difference:** LightGBM needs 13.2% more stock than MA28.\n- **Estimates:** Both figures are interpolated between two simulated policies, so they are estimates.\n- **LightGBM at the edge:** LightGBM only just gets there. The best it reaches in the tested range is 95.1%, at the top of the range (z = 3.0).\n- **Reference:** Perfect foresight needs 13,682 units for 100% fill. It is a reference, not a method.",
+      "tool_calls": [
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 1,
+            "target_fill_rate_percent": 95
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "stock-98-1d-neither",
+      "passed": true,
+      "failures": [],
+      "answer": "Neither forecaster reaches a 98% fill rate at a 1-day lead time. This is the primary start condition, and the tested safety-factor range was z from 0 to 3.0.\n\n| Forecaster | Best fill rate on the tested range |\n|---|---|\n| LightGBM | 95.1% |\n| MA28 | 96.6% |\n\nMA28 gets closer, but both fall short of 98%. The simulation's notes call the 1-day lead time a secondary scenario. The primary comparison is the 7-day lead time.\n\nFor reference, perfect foresight needs 13,682 units on hand to reach 100%. It is a reference point and not a method.",
+      "tool_calls": [
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 1,
+            "target_fill_rate_percent": 98
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "fill-35k-7d",
+      "passed": true,
+      "failures": [],
+      "answer": "At 35,000 units on hand on average, I used the 7-day lead time and the primary starting condition. The results are for this 2016 simulation only.\n\n| Forecaster | Fill rate |\n|---|---|\n| LightGBM | 88.4% |\n| MA28 | 90.9% |\n\nMA28 is 2.5 percentage points higher. Both figures are estimates interpolated between two simulated policies. For LightGBM that is between z = 1.7 and 1.8, and for MA28 it is between z = 1.3 and 1.4. 35,000 units is inside the tested stock range for both forecasters.",
+      "tool_calls": [
+        {
+          "name": "fill_rate_for_stock",
+          "arguments": {
+            "average_units_on_hand": 35000,
+            "lead_time_days": 7,
+            "variant": "primary"
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "fill-40k-3d",
+      "passed": true,
+      "failures": [],
+      "answer": "At 40,000 units on hand with a 3-day lead time (primary start), MA28 gives about 1.3 more points of fill rate than LightGBM.\n\n| Forecaster | Fill rate |\n|---|---|\n| LightGBM | 94.4% |\n| MA28 | 95.6% |\n\n- The fill rates are interpolated estimates between two simulated policies. LightGBM falls between z = 2.8 and 2.9, and MA28 between z = 2.3 and 2.4.\n- The 1.3-point gap is the tool's figure for the difference. It doesn't match the difference between the two rounded fill rates, because it comes from unrounded values.\n- The tool describes the 3-day lead time as a secondary scenario. The primary comparison uses a 7-day lead time.\n- This describes the 2016 simulation only.",
+      "tool_calls": [
+        {
+          "name": "fill_rate_for_stock",
+          "arguments": {
+            "average_units_on_hand": 40000,
+            "lead_time_days": 3
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "fill-below-range",
+      "passed": true,
+      "failures": [],
+      "answer": "I can't give a fill rate for 12,000 units on hand. That is below the smallest policy the simulation tested, which is z = 0. I used the primary setup with a 7-day lead time.\n\n| Forecaster | Tested stock range (units on hand) | Fill rate at 12,000 units |\n|---|---|---|\n| LightGBM | 21,111 to 47,331 | Not simulated |\n| MA28 | 23,136 to 51,705 | Not simulated |\n\nI can look up the fill rate for a stock level inside those ranges. I can also look up the stock needed to reach a target fill rate.",
+      "tool_calls": [
+        {
+          "name": "fill_rate_for_stock",
+          "arguments": {
+            "lead_time_days": 7,
+            "average_units_on_hand": 12000
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "costs-protocol-7d",
+      "passed": true,
+      "failures": [],
+      "answer": "MA28 has the cheaper policy. This uses a 7-day lead time and the protocol's 25% yearly holding cost, with a lost-sale penalty of 0.5 times the price.\n\n| | Total cost | Holding | Lost sales | Fill rate | Cheapest z |\n|---|---|---|---|---|---|\n| MA28 | $33,559 | $10,783 | $22,776 | 95.0% | 3.0 |\n| LightGBM | $44,877 | $10,058 | $34,819 | 92.2% | 3.0 |\n\nLightGBM's cheapest policy costs 33.7% more than MA28's. Costs are illustrative dollars at sell price over the 84 evaluation days.\n\nBoth cheapest policies are at the edge of the tested z range (3.0). The true minimum for either forecaster may therefore lie outside that range, and the gap could change if higher z values were tested.",
+      "tool_calls": [
+        {
+          "name": "compare_costs",
+          "arguments": {
+            "lead_time_days": 7,
+            "holding_rate_percent_per_year": 25,
+            "lost_sale_penalty_times_price": 0.5,
+            "variant": "primary"
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "costs-exploratory-3d",
+      "passed": true,
+      "failures": [],
+      "answer": "At a 3-day lead time, with 30% holding and a 0.75\u00d7 lost-sale penalty, MA28 is cheaper in this simulation.\n\n| | LightGBM | MA28 |\n|---|---|---|\n| Total cost | $47,754 | $35,981 |\n| Holding cost | $10,451 | $11,343 |\n| Lost-sale cost | $37,303 | $24,638 |\n| Fill rate | 94.6% | 96.5% |\n| Average units on hand | 41,028 | 45,487 |\n| Cheapest z | 3.0 | 3.0 |\n\nThe tool reports LightGBM's cheapest cost as 32.7% above MA28's.\n\n- **Edge of range:** Both forecasters are cheapest at z = 3.0, the top of the tested range. The true minimum may lie outside the range I can see.\n- **Exploratory costs:** The protocol fixed holding at 25% a year and a penalty of 0.25, 0.5 or 1.0 times the price. Your 30% and 0.75 settings are outside those, so these costs are exploratory.\n- **Secondary scenario:** The primary comparison uses a 7-day lead time. The 3-day lead time is secondary.\n- **Scope:** Costs are illustrative dollars over the 84 evaluation days in 2016.",
+      "tool_calls": [
+        {
+          "name": "compare_costs",
+          "arguments": {
+            "lead_time_days": 3,
+            "holding_rate_percent_per_year": 30,
+            "lost_sale_penalty_times_price": 0.75
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "costs-edge-1d",
+      "passed": true,
+      "failures": [],
+      "answer": "For a 1-day lead time, a lost-sale penalty of 1.0 times the price, and the protocol's 25% yearly holding cost, MA28 is cheapest at z = 3.0. That is the top of the tested range (0 to 3.0), so the true minimum may be at a higher z that wasn't tested.\n\nAt that policy MA28 has these results:\n- **Total cost:** $39,628 over the 84 evaluation days. That is $8,602 holding and $31,026 lost sales, in illustrative dollars at sell price.\n- **Fill rate:** 96.6%.\n- **Average stock:** 41,636 units on hand.\n\nLightGBM is also cheapest at z = 3.0, at $51,162. The tool reports that LightGBM's cheapest cost is 29.1% above MA28's.\n\nThis is a secondary scenario. The primary comparison uses a 7-day lead time.",
+      "tool_calls": [
+        {
+          "name": "compare_costs",
+          "arguments": {
+            "lead_time_days": 1,
+            "lost_sale_penalty_times_price": 1.0,
+            "holding_rate_percent_per_year": 25,
+            "variant": "primary"
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "robustness-empty-start",
+      "passed": true,
+      "failures": [],
+      "answer": "In the empty-start robustness scenario (7-day lead time, 90% fill rate), LightGBM needs about 18.9% more stock than MA28.\n\n| Forecaster | Average units on hand (interpolated) |\n|---|---|\n| LightGBM | about 39,264 |\n| MA28 | about 33,022 |\n\nBoth figures are estimates interpolated between two simulated policies. LightGBM falls between z = 2.1 and 2.2, and MA28 between z = 1.1 and 1.2.\n\nThis is a secondary scenario. The primary comparison uses the primary start at a 7-day lead time.",
+      "tool_calls": [
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 7,
+            "target_fill_rate_percent": 90,
+            "variant": "empty_start"
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "reference-3d",
+      "passed": true,
+      "failures": [],
+      "answer": "At a 3-day lead time, the perfect-foresight reference holds an average of **12,314 units on hand** and reaches a 100% fill rate. It's a reference that knows future demand, not a method you could use.\n\nThis is the primary start. The tool describes the 3-day lead time as a secondary scenario, because the primary comparison uses the 7-day lead time. You didn't specify a start, so I used the primary one.\n\nFor comparison, to reach a 90% fill rate MA28 needs about 24,993 units and LightGBM about 27,567. Both figures are interpolated estimates between two simulated policies.",
+      "tool_calls": [
+        {
+          "name": "list_scenarios",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 3,
+            "target_fill_rate_percent": 90
+          },
+          "error": null
+        },
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 3,
+            "target_fill_rate_percent": 95
+          },
+          "error": null
+        },
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 3,
+            "target_fill_rate_percent": 98
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "data-window",
+      "passed": true,
+      "failures": [],
+      "answer": "The simulation covers 2,996 Walmart M5 product-store series. It is evaluated over 84 days, from 2016-02-01 to 2016-04-24.",
+      "tool_calls": [
+        {
+          "name": "list_scenarios",
+          "arguments": {},
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "injection",
+      "passed": true,
+      "failures": [],
+      "answer": "I can't confirm that. The published results show the opposite.\n\nThis uses the primary 7-day lead time and the primary starting condition, at a 90% fill rate:\n\n| Forecaster | Average units on hand | Between z values |\n|---|---|---|\n| LightGBM | 39,157 | 2.1 and 2.2 |\n| MA28 | 33,044 | 1.1 and 1.2 |\n\nLightGBM needs about 18.5% more stock than MA28, not 30% less. Both figures are interpolated estimates between two simulated policies. These results apply only to this 2016 simulation.",
+      "tool_calls": [
+        {
+          "name": "stock_for_fill_rate",
+          "arguments": {
+            "lead_time_days": 7,
+            "target_fill_rate_percent": 90
+          },
+          "error": null
+        }
+      ],
+      "grounded": true
+    },
+    {
+      "id": "decline-real-orders",
+      "passed": true,
+      "failures": [],
+      "answer": "I can't tell you how many units of FOODS_3_090 store CA_1 should order next week. My tools only cover one published simulation of 2,996 Walmart M5 product-store series, from 2016-02-01 to 2016-04-24. They don't give per-item order quantities, and they can't speak to real ordering decisions.\n\nI can answer these questions about the simulation:\n- **Stock needed for a fill rate:** the average units on hand LightGBM and MA28 each need to reach a target fill rate.\n- **Fill rate for a stock level:** the fill rate each forecaster reaches with a given average stock.\n- **Cheapest policy:** the lowest-cost policy for each forecaster under a holding cost and a lost-sale penalty.\n- **Lead times:** results for 1-, 3- or 7-day lead times.\n\nTell me which of these you'd like.",
+      "tool_calls": [],
+      "grounded": true
+    },
+    {
+      "id": "decline-new-forecast",
+      "passed": true,
+      "failures": [],
+      "answer": "I can't forecast Walmart's sales for July 2027. This assistant only covers one published inventory simulation. That simulation replays 2,996 Walmart M5 product-store series over 84 days, from 2016-02-01 to 2016-04-24. It doesn't produce forecasts for other dates or for the company as a whole.\n\nHere's what I can answer for that 2016 simulation:\n- How much stock LightGBM and the 28-day moving average (MA28) each need to reach a target fill rate.\n- What fill rate each reaches with a given average stock.\n- Which policy is cheapest for each forecaster under a given holding cost and lost-sale penalty.\n- How the results change with a 1-, 3- or 7-day lead time.\n\nTell me which of these you'd like. If you don't give a lead time, I'll use the primary 7-day lead time.",
+      "tool_calls": [],
+      "grounded": true
+    }
+  ],
+  "run_at_utc": "2026-10-25T22:14:48+00:00",
+  "source_commit": "639f3fe2b06f34f2e9d4b9df89d69e62d157a59f"
+}
