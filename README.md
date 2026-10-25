@@ -25,7 +25,7 @@ SupplyPilot AI forecasts daily demand for 3,000 Walmart product-store series fro
 
 ## Project Status
 
-Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM development and the final benchmark, and the inventory simulation. Phase 4 is in progress: the [inventory what-if app](#phase-4-planning-app-in-progress) and a [planning assistant](#planning-assistant) that answers questions through the same engine are built. A live evaluation of the assistant and a public deployment come next.
+Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM development and the final benchmark, and the inventory simulation. Phase 4 is in progress: the [inventory what-if app](#phase-4-planning-app-in-progress) and a [planning assistant](#planning-assistant) that answers questions through the same engine are built. In three live evaluation runs the assistant passed all 17 questions each time. A public deployment comes next.
 
 **Development cycles:** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both development cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE.
 
@@ -43,6 +43,7 @@ Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM de
 - **Calendar-Aware Cycle 2:** adopted 8-origin Tweedie: **79.8558% daily**, **42.5783% pooled weekly**, **32.1468% 28-day aggregated WAPE**; both candidates and the adoption decision reproduced in two independent runs. See [results and limitations](#completed-cycle-2-results).
 - **Completed frozen final evaluation:** LightGBM **73.5035% daily pooled WAPE** versus MA28 **74.3784%** on 2,996 series and four windows: approximately **0.875 percentage points**, or **1.18% relative error reduction**. MA28 wins the aggregated WAPE metrics and RMSE; see [final results and limitations](#completed-final-results).
 - **Phase 3 inventory simulation:** one registered run of a frozen protocol on the same 2,996 series: 2 methods × 31 safety-stock levels × 3 lead times × 3 variants, plus a perfect-foresight reference. The primary endpoint is **not estimable**: at a 7-day lead time LightGBM tops out at **92.2%** fill, while MA28 reaches 95%. In the descriptive comparisons, LightGBM needed **7.1–18.5% more inventory for 90% fill**, and MA28 had lower illustrative cost at every grid point. See [Phase 3 results](#phase-3-inventory-simulation-frozen-protocol-v10).
+- **Phase 4 planning app:** a FastAPI + React what-if page over the published results, and a tool-calling planning assistant that may only quote numbers returned by its tools. In three live runs with `claude-sonnet-5-5` it passed all 17 evaluation questions each time (51 of 51), including declines and an instruction-injection question. See [Phase 4](#phase-4-planning-app-in-progress).
 - **Cycle 1 reproducibility:** second run matched all nine WAPE scores within `1e-9` and all nine `best_iteration` values exactly; **11,744 V1 learning-curve points** recorded.
 - Automated unit and integration tests cover both ML cycles and the inventory simulation; run Pytest and Ruff with the commands below. GitHub Actions CI checks changes on pull requests and on `main`.
 - Wide Parquet storage is **73.2% smaller** than CSV, with **17.94× faster** median full-table loading in the measured local benchmark (not a universal performance guarantee).
@@ -1048,9 +1049,11 @@ Then open <http://127.0.0.1:8000>. The interactive API documentation is at <http
 .venv/bin/python -m scripts.run_agent_eval
 ```
 
-It prints a pass/fail table and saves a report under `reports/phase4_agent/`. No live results are reported here yet.
+It prints a pass/fail table and saves a report under `reports/phase4_agent/`.
 
-**Next:** a live evaluation run of the assistant, and a public deployment.
+**Live results.** Three runs on October 25, 2026, with `claude-sonnet-5-5` at commit `639f3fe`, the code described in this section. All 17 cases passed in each run, 51 of 51 in total. Every answer passed the grounding check, and no tool call returned an error. The [reports](reports/phase4_agent/) contain every question, answer and tool call. Limits: 17 questions is a small set; the checks cover tool calls, quoted numbers, required wording, grounding and declines, not every aspect of an answer; and results can change with model versions.
+
+**Next:** a public deployment.
 
 ## Exploratory Data Analysis
 
@@ -1119,7 +1122,7 @@ It prints a pass/fail table and saves a report under `reports/phase4_agent/`. No
 
 - [x] Build the inventory what-if engine, FastAPI service and React page over the published Phase 3 results (Issue #40).
 - [x] Add a planning assistant that answers questions by calling the what-if engine, with a grounding check and evaluation questions (Issue #42).
-- [ ] Run the live evaluation of the assistant and publish its report.
+- [x] Run the live evaluation of the assistant and publish its reports: 51 of 51 answers passed across three runs.
 - [ ] Deploy a public demo.
 - [ ] Support user-provided CSVs through a standardized input format, with forecasts and inventory recommendations.
 
