@@ -1,0 +1,27 @@
+{
+  "name": "supplypilot-web",
+  "version": "0.4.0",
+  "private": true,
+  "description": "SupplyPilot inventory what-if page (React + TypeScript), served by the FastAPI app.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3"
+  }
+}
