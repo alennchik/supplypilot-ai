@@ -19,13 +19,13 @@ SupplyPilot AI forecasts daily demand for 3,000 Walmart product-store series fro
 | **Forecasting** | Naive, seasonal naive and MA28 baselines, and a global LightGBM (Tweedie) model, compared over four 28-day windows |
 | **Inventory** | A lost-sales periodic-review simulator: 2 forecasters × 3 lead times × 31 safety-stock levels, plus a perfect-foresight reference |
 | **Rigor** | Preregistered protocols, SHA-256 provenance checks, single registered runs, and 800+ automated tests in CI |
-| **App** | A FastAPI service and a React + TypeScript page that answer inventory what-if questions from the published results |
+| **App** | A FastAPI service and a React + TypeScript page that answer inventory what-if questions from the published results, plus a planning assistant whose answers are checked against its tool results |
 
 **Jump to:** [Final ML benchmark](#frozen-final-ml-benchmark--issue-28) · [Inventory simulation](#phase-3-inventory-simulation-frozen-protocol-v10) · [Getting started](#getting-started) · [Roadmap](#project-roadmap) · [Scope and limitations](#data-and-scope-notes)
 
 ## Project Status
 
-Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM development and the final benchmark, and the inventory simulation. Phase 4 is in progress: the [inventory what-if app](#phase-4-planning-app-in-progress) is built, and a planning agent that answers questions through the same engine comes next.
+Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM development and the final benchmark, and the inventory simulation. Phase 4 is in progress: the [inventory what-if app](#phase-4-planning-app-in-progress) and a [planning assistant](#planning-assistant) that answers questions through the same engine are built. A live evaluation of the assistant and a public deployment come next.
 
 **Development cycles:** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both development cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE.
 
@@ -96,6 +96,7 @@ Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM de
 - Answer inventory what-if questions from the published Phase 3 curves: stock for a target fill rate, fill rate for a stock budget, and the cheapest policy for any holding cost and lost-sale penalty, with the perfect-foresight reference (`src/inventory_whatif.py`).
 - Check every published file against `checksums.json` before use, and label settings outside the protocol as exploratory in every answer.
 - Serve the answers over HTTP with FastAPI (`api/main.py`) and show them on a React + TypeScript page with interactive SVG charts, keyboard support and table views (`web/`).
+- Answer plain-English questions with a tool-calling planning assistant (Anthropic or OpenAI) whose every number is checked against the tool results, with a fixed evaluation set (`src/planning_agent.py`, `src/agent_eval.py`).
 
 ### Quality and Automation
 
@@ -1029,7 +1030,27 @@ cd web && npm install && npm run build && cd ..
 
 Then open <http://127.0.0.1:8000>. The interactive API documentation is at <http://127.0.0.1:8000/docs>. The app needs no M5 data: it reads only the published reports in the repository. While working on the page, `npm run watch` in `web/` rebuilds it on every change.
 
-**Next:** a planning agent that answers plain-English questions by calling the same engine, with a fixed set of evaluation questions, and a public deployment.
+### Planning assistant
+
+[Issue #42](https://github.com/alennchik/supplypilot-ai/issues/42) adds an assistant beside the what-if page. It answers plain-English questions about the published results by calling the what-if engine as tools.
+
+- **Tools** (`src/agent_tools.py`): `list_scenarios`, `stock_for_fill_rate`, `fill_rate_for_stock` and `compare_costs`. Each returns compact, rounded values and the comparisons a question needs, so the model never has to calculate.
+- **Grounding check** (`src/agent_grounding.py`): every number in an answer must match a tool result, a tool argument, the question or the facts in the system prompt, at the precision it is written with. An answer that fails gets one request to revise. If it still fails, it is shown flagged with the numbers that could not be verified.
+- **Loop and models** (`src/planning_agent.py`, `src/agent_models.py`): at most six model calls per question, through the Anthropic Messages API (default model `claude-sonnet-5-5`) or the OpenAI Chat Completions API, over httpx.
+- **Scope**: it declines questions about real ordering decisions or other data, and ignores instructions inside a question to skip the tools or to state a result.
+- **Page**: example questions, the answer with its verification badge, every tool call with its arguments and result, and a button that shows the assistant's scenario on the charts.
+
+**Turn it on:** copy `.env.example` to `.env`, put your API key in it, and restart the server. `.env` is ignored by git. Without a key, the rest of the app works and the panel explains how to turn the assistant on.
+
+**Evaluation** (`src/agent_eval.py`): 17 fixed questions with the tool calls a correct answer needs. The numbers an answer must quote are read from the tools when the evaluation runs, so the questions test the assistant against the engine. They include declines and an instruction-injection question. CI checks the harness, the loop, the grounding check and the API with scripted models, without keys or network access. A live run uses your key:
+
+```bash
+.venv/bin/python -m scripts.run_agent_eval
+```
+
+It prints a pass/fail table and saves a report under `reports/phase4_agent/`. No live results are reported here yet.
+
+**Next:** a live evaluation run of the assistant, and a public deployment.
 
 ## Exploratory Data Analysis
 
@@ -1052,10 +1073,11 @@ Then open <http://127.0.0.1:8000>. The interactive API documentation is at <http
 | Configuration | PyYAML |
 | Modeling | LightGBM, scikit-learn |
 | Web app | FastAPI, Uvicorn, React, TypeScript, esbuild |
+| Planning assistant | Anthropic or OpenAI API with tool calling, httpx |
 | Testing and linting | Pytest, Ruff, Node.js test runner |
 | Collaboration and automation | Git, GitHub, GitHub Actions |
 
-**Planned:** a planning agent over the what-if engine, a public deployment, and customer CSV imports. DuckDB/SQL and PostgreSQL are possible future additions, not current features.
+**Planned:** a public deployment and customer CSV imports. DuckDB/SQL and PostgreSQL are possible future additions, not current features.
 
 ## Project Roadmap
 
@@ -1096,7 +1118,8 @@ Then open <http://127.0.0.1:8000>. The interactive API documentation is at <http
 ### In progress — Phase 4: Planning app
 
 - [x] Build the inventory what-if engine, FastAPI service and React page over the published Phase 3 results (Issue #40).
-- [ ] Add a planning agent that answers questions by calling the what-if engine, with evaluation questions.
+- [x] Add a planning assistant that answers questions by calling the what-if engine, with a grounding check and evaluation questions (Issue #42).
+- [ ] Run the live evaluation of the assistant and publish its report.
 - [ ] Deploy a public demo.
 - [ ] Support user-provided CSVs through a standardized input format, with forecasts and inventory recommendations.
 
