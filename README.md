@@ -6,6 +6,8 @@
 
 SupplyPilot AI forecasts daily demand for 3,000 Walmart product-store series from the [M5 Forecasting dataset](https://www.kaggle.com/competitions/m5-forecasting-accuracy/data) and tests whether a more accurate forecast leads to better replenishment decisions. The final forecast benchmark and the inventory simulation each followed a protocol frozen before its run, and each was run exactly once.
 
+**Demo:** a [2-minute video](https://youtu.be/SVAXT4EBifg) of the what-if app and the planning assistant.
+
 **Main finding:** a global LightGBM model beat a 28-day moving average (MA28) on daily forecast error, with 1.18% lower daily WAPE. In the inventory simulation, however, LightGBM needed **18.5% more stock than MA28 for a 90% fill rate** at a 7-day lead time. Replenishment orders depend on demand totals over several days, and MA28 was more accurate on weekly and 28-day totals. The preregistered primary comparison, at a 95% fill rate and the same lead time, could not be computed because LightGBM never reached 95%.
 
 <picture>
@@ -1000,6 +1002,8 @@ These are simulation results under stated assumptions, not measured savings of a
 [Issue #40](https://github.com/alennchik/supplypilot-ai/issues/40) adds an inventory what-if app on top of the published Phase 3 results: a FastAPI service and a React + TypeScript page.
 
 ![The what-if page at the protocol's primary settings](docs/images/whatif-app.png)
+
+The [demo video](https://youtu.be/SVAXT4EBifg) walks through this page and the planning assistant. The assistant's answers in it are replayed from the logged live run of October 25, 2026; the tool calls and the number check ran for real.
 
 **What it answers.** Choose a supplier lead time, a target fill rate, a holding cost, a lost-sale penalty and a stock budget. For LightGBM and MA28 the page shows:
 
