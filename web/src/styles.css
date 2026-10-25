@@ -887,8 +887,55 @@ th {
 }
 
 .agent-text {
-  white-space: pre-wrap;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   font-size: 15px;
+}
+
+.agent-text ul,
+.agent-text ol {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.agent-text li + li {
+  margin-top: 4px;
+}
+
+.agent-text code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.answer-heading {
+  font-weight: 600;
+}
+
+.answer-table {
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.answer-table table {
+  width: auto;
+  font-size: 14px;
+}
+
+.answer-table th {
+  position: static;
+}
+
+.answer-table th.numeric {
+  font-family: var(--sans);
+}
+
+.answer-table thead th {
+  border-top: 0;
 }
 
 .agent-meta {

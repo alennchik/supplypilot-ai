@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
 
 import { askAgent, fetchAgentStatus } from "../api.ts";
 import type { AgentReply, AgentStatus, AgentToolCall, Question } from "../api.ts";
+import { AnswerText } from "./AnswerText.tsx";
 
 const EXAMPLES = [
   "For each lead time, how much more stock does LightGBM need than MA28 for a 90% fill rate?",
@@ -59,7 +60,7 @@ function Answer({ question, reply, onApply }: AnswerProps) {
   return (
     <article className="agent-answer" aria-live="polite">
       <p className="agent-asked">{question}</p>
-      <p className="agent-text">{reply.answer}</p>
+      <AnswerText text={reply.answer} />
       <div className="agent-meta">
         {reply.grounded ? (
           <span className="badge badge-ok">Every number checked against tool results</span>
