@@ -19,12 +19,13 @@ SupplyPilot AI forecasts daily demand for 3,000 Walmart product-store series fro
 | **Forecasting** | Naive, seasonal naive and MA28 baselines, and a global LightGBM (Tweedie) model, compared over four 28-day windows |
 | **Inventory** | A lost-sales periodic-review simulator: 2 forecasters × 3 lead times × 31 safety-stock levels, plus a perfect-foresight reference |
 | **Rigor** | Preregistered protocols, SHA-256 provenance checks, single registered runs, and 800+ automated tests in CI |
+| **App** | A FastAPI service and a React + TypeScript page that answer inventory what-if questions from the published results |
 
 **Jump to:** [Final ML benchmark](#frozen-final-ml-benchmark--issue-28) · [Inventory simulation](#phase-3-inventory-simulation-frozen-protocol-v10) · [Getting started](#getting-started) · [Roadmap](#project-roadmap) · [Scope and limitations](#data-and-scope-notes)
 
 ## Project Status
 
-Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM development and the final benchmark, and the inventory simulation. Phase 4, a dashboard with CSV imports, is planned.
+Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM development and the final benchmark, and the inventory simulation. Phase 4 is in progress: the [inventory what-if app](#phase-4-planning-app-in-progress) is built, and a planning agent that answers questions through the same engine comes next.
 
 **Development cycles:** The data engineering pipeline, three-model baseline backtest, leakage-aware multi-horizon feature pipeline, and **two preregistered LightGBM development cycles** are complete. Cycle 1 evaluated nine configurations and selected Tweedie / 8 origins at **80.8670% daily pooled V2 WAPE**. Calendar-Aware Cycle 2 evaluated two candidates and adopted **`cycle2_tweedie_8_origins_calendar` at 79.8558%**, versus **83.4165%** for matched MA28. Both development cycles were independently reproduced. Cycle 2 covers **2,992 eligible series from the fixed 3,000-series sample**, not the full 30,490-series M5 population. The adopted model improves daily and weekly WAPE over Cycle 1 but slightly worsens 28-day aggregated WAPE.
 
@@ -89,6 +90,12 @@ Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM de
 - Rebuild weekly LightGBM and MA28 forecast paths from hash-verified snapshots, and check them against Issue #28 and Phase 1 before any inventory metric is computed (`src/inventory_inputs.py`, `src/inventory_ml_forecasts.py`).
 - Run the frozen experiment once, with an exclusive run registration, sealed results with checksums, and publication without recomputation (`scripts/run_inventory_simulation.py`, `src/inventory_publication.py`).
 - Draw the fill-rate-versus-stock chart from the published reports in light and dark variants, with byte-identical output on every run (`src/inventory_plots.py`, `scripts/plot_inventory_tradeoff.py`).
+
+### Planning App
+
+- Answer inventory what-if questions from the published Phase 3 curves: stock for a target fill rate, fill rate for a stock budget, and the cheapest policy for any holding cost and lost-sale penalty, with the perfect-foresight reference (`src/inventory_whatif.py`).
+- Check every published file against `checksums.json` before use, and label settings outside the protocol as exploratory in every answer.
+- Serve the answers over HTTP with FastAPI (`api/main.py`) and show them on a React + TypeScript page with interactive SVG charts, keyboard support and table views (`web/`).
 
 ### Quality and Automation
 
@@ -986,6 +993,44 @@ These are simulation results under stated assumptions, not measured savings of a
 
 `--checks-only` needs the processed M5 inputs and the local Issue #28 artifacts in `data/processed/ml_final_evaluation/primary/`, which are not in git. It stops if any hash differs from the published record. `--execute` performed the one registered run. It refuses to start while a registration, sealed results or the published report folder exists, and it never overwrites results. `--publish-only` republishes sealed results without recomputing them.
 
+## Phase 4: Planning App (in progress)
+
+[Issue #40](https://github.com/alennchik/supplypilot-ai/issues/40) adds an inventory what-if app on top of the published Phase 3 results: a FastAPI service and a React + TypeScript page.
+
+![The what-if page at the protocol's primary settings](docs/images/whatif-app.png)
+
+**What it answers.** Choose a supplier lead time, a target fill rate, a holding cost, a lost-sale penalty and a stock budget. For LightGBM and MA28 the page shows:
+
+- the average stock needed for the target fill rate, or that the target is not reached on the tested z range;
+- the fill rate reached with the stock budget;
+- the cheapest simulated policy at those costs, flagged when it sits at the edge of the z grid;
+- the perfect-foresight reference.
+
+**How it stays faithful to the published results.**
+
+- Nothing is simulated again. The engine reads `reports/phase3_inventory/primary/` after checking each file against `checksums.json`.
+- Stock for a target uses the same interpolation and statuses as the preregistered endpoints. Tests check the engine against `endpoints.csv` and against the published cost columns.
+- Cost settings other than the protocol's (holding at 25% a year; a penalty of 0.25, 0.5 or 1.0 times the sell price), targets other than 90%, 95% and 98%, and scenarios other than the primary one are labelled in every API answer and on the page.
+
+| Part | Where | What it does |
+|---|---|---|
+| Engine | `src/inventory_whatif.py` | Reads and verifies the reports; answers what-if questions |
+| API | `api/main.py` | `GET /api/health`, `GET /api/scenarios`, `POST /api/what-if`; serves the built page at `/` |
+| Page | `web/` | React 19 and TypeScript, bundled with esbuild; SVG charts without a chart library, with hover, arrow-key stepping and a table view |
+| Tests | `tests/test_inventory_whatif.py`, `tests/test_api.py`, `web/src/*.test.ts` | Engine, HTTP and helper tests; CI also type-checks and builds the page |
+
+**Run it locally** with Python 3.13 and Node.js 22.18 or newer:
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+cd web && npm install && npm run build && cd ..
+.venv/bin/python -m uvicorn api.main:app --reload
+```
+
+Then open <http://127.0.0.1:8000>. The interactive API documentation is at <http://127.0.0.1:8000/docs>. The app needs no M5 data: it reads only the published reports in the repository. While working on the page, `npm run watch` in `web/` rebuilds it on every change.
+
+**Next:** a planning agent that answers plain-English questions by calling the same engine, with a fixed set of evaluation questions, and a public deployment.
+
 ## Exploratory Data Analysis
 
 ### Daily sales trends
@@ -1000,16 +1045,17 @@ These are simulation results under stated assumptions, not measured savings of a
 
 | Area | Tools |
 |---|---|
-| Language | Python 3.13 |
+| Language | Python 3.13, TypeScript |
 | Processing | Pandas, NumPy |
 | Parquet storage | PyArrow, Apache Parquet |
 | Visualization | Matplotlib |
 | Configuration | PyYAML |
 | Modeling | LightGBM, scikit-learn |
-| Testing and linting | Pytest, Ruff |
+| Web app | FastAPI, Uvicorn, React, TypeScript, esbuild |
+| Testing and linting | Pytest, Ruff, Node.js test runner |
 | Collaboration and automation | Git, GitHub, GitHub Actions |
 
-**Planned:** a Streamlit dashboard and customer CSV imports. DuckDB/SQL, PostgreSQL, a backend API, and an LLM assistant are possible future additions, not current features.
+**Planned:** a planning agent over the what-if engine, a public deployment, and customer CSV imports. DuckDB/SQL and PostgreSQL are possible future additions, not current features.
 
 ## Project Roadmap
 
@@ -1047,14 +1093,15 @@ These are simulation results under stated assumptions, not measured savings of a
 - [x] Implement the lost-sales periodic-review simulator, ordering policy and metrics (Issue #33), and the weekly forecast inputs with Issue #28 consistency checks (Issue #34).
 - [x] Run the frozen experiment once, with provenance checks and a registered single run, and publish the reports (Issue #36). The primary endpoint was not estimable; MA28 had the better fill-rate-versus-stock trade-off in every scenario.
 
-### Planned — Phase 4: Product interface
+### In progress — Phase 4: Planning app
 
-- [ ] Build an interactive Streamlit dashboard.
-- [ ] Support user-provided CSVs through a standardized input format.
-- [ ] Display forecasts, error analysis, and inventory recommendations.
+- [x] Build the inventory what-if engine, FastAPI service and React page over the published Phase 3 results (Issue #40).
+- [ ] Add a planning agent that answers questions by calling the what-if engine, with evaluation questions.
+- [ ] Deploy a public demo.
+- [ ] Support user-provided CSVs through a standardized input format, with forecasts and inventory recommendations.
 
 ## Data and Scope Notes
 
 The Walmart M5 dataset provides historical unit sales, calendar information, and observed selling prices for product-store series across U.S. Walmart stores. It does **not** provide all operational inputs needed for inventory planning (such as reliable on-hand inventory, supplier lead times, or stockout costs). Phase 3 therefore states every inventory assumption explicitly in its frozen protocol.
 
-This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, two preregistered development cycles with independently reproduced results, a completed frozen four-window final ML evaluation, and a preregistered inventory simulation**. In the final benchmark, LightGBM improves daily pooled WAPE and MAE over MA28, while MA28 has lower weekly WAPE, 28-day WAPE, and RMSE. The final run was not independently reproduced, and Phase 1 had already exposed baseline results for these windows. Phase 3 compared both methods in a preregistered inventory simulation. Its primary endpoint was not estimable, and MA28 had the better fill-rate-versus-stock trade-off in every scenario. These are simulation results under explicit assumptions, not measured savings of a real business. No inventory optimizer is implemented.
+This project currently demonstrates **data engineering, reproducible multi-window baseline evaluation, leakage-aware supervised ML preparation, global LightGBM training, two preregistered development cycles with independently reproduced results, a completed frozen four-window final ML evaluation, and a preregistered inventory simulation**. In the final benchmark, LightGBM improves daily pooled WAPE and MAE over MA28, while MA28 has lower weekly WAPE, 28-day WAPE, and RMSE. The final run was not independently reproduced, and Phase 1 had already exposed baseline results for these windows. Phase 3 compared both methods in a preregistered inventory simulation. Its primary endpoint was not estimable, and MA28 had the better fill-rate-versus-stock trade-off in every scenario. These are simulation results under explicit assumptions, not measured savings of a real business. No inventory optimizer is implemented. The Phase 4 app replays the published simulation; it is not a planning tool for a real business.

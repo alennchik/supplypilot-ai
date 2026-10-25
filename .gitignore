@@ -228,3 +228,6 @@ data/processed/
 
 # Trained ML model artifacts
 /models/
+
+# Web app (web/dist is covered by dist/ above)
+node_modules/
