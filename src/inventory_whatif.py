@@ -75,23 +75,30 @@ class Reports:
         return self.manifest["protocol"]
 
 
-def load_reports(report_dir=REPORT_DIR) -> Reports:
-    """Read the published reports after checking them against checksums.json.
+def read_verified(report_dir, names) -> dict[str, bytes]:
+    """The bytes of each named report file, after checking it against checksums.json.
 
-    Each file is hashed and parsed from the same bytes, so a file replaced
-    after the check cannot be read by mistake.
+    Callers parse the same bytes that were hashed, so a file replaced after the
+    check cannot be read by mistake.
     """
     folder = Path(report_dir)
     checksums = json.loads((folder / "checksums.json").read_text())
     contents = {}
 
-    for name in FILES:
+    for name in names:
         data = (folder / name).read_bytes()
         if checksums.get(name) != hashlib.sha256(data).hexdigest():
             raise ValueError(
                 f"{name} does not match checksums.json; the published reports changed"
             )
         contents[name] = data
+
+    return contents
+
+
+def load_reports(report_dir=REPORT_DIR) -> Reports:
+    """Read the published reports after checking them against checksums.json."""
+    contents = read_verified(report_dir, FILES)
 
     curves = pd.read_csv(io.BytesIO(contents["curves.csv"]))
     reference = pd.read_csv(io.BytesIO(contents["reference.csv"]))
