@@ -18,7 +18,7 @@ SupplyPilot AI forecasts daily demand for 3,000 Walmart product-store series fro
 | **Data** | 3,000 sampled product-store series and 4.55 million daily rows, stored as Parquet |
 | **Forecasting** | Naive, seasonal naive and MA28 baselines, and a global LightGBM (Tweedie) model, compared over four 28-day windows |
 | **Inventory** | A lost-sales periodic-review simulator: 2 forecasters × 3 lead times × 31 safety-stock levels, plus a perfect-foresight reference |
-| **Rigor** | Preregistered protocols, SHA-256 provenance checks, single registered runs, and 800+ automated tests in CI |
+| **Rigor** | Preregistered protocols, SHA-256 provenance checks, single registered runs, headline results re-derived in SQL, and 800+ automated tests in CI |
 | **App** | A FastAPI service and a React + TypeScript page that answer inventory what-if questions from the published results, plus a planning assistant whose answers are checked against its tool results |
 
 **Jump to:** [Final ML benchmark](#frozen-final-ml-benchmark--issue-28) · [Inventory simulation](#phase-3-inventory-simulation-frozen-protocol-v10) · [Getting started](#getting-started) · [Roadmap](#project-roadmap) · [Scope and limitations](#data-and-scope-notes)
@@ -91,6 +91,7 @@ Phases 0–3 are complete: the data pipeline, the baseline backtest, LightGBM de
 - Rebuild weekly LightGBM and MA28 forecast paths from hash-verified snapshots, and check them against Issue #28 and Phase 1 before any inventory metric is computed (`src/inventory_inputs.py`, `src/inventory_ml_forecasts.py`).
 - Run the frozen experiment once, with an exclusive run registration, sealed results with checksums, and publication without recomputation (`scripts/run_inventory_simulation.py`, `src/inventory_publication.py`).
 - Draw the fill-rate-versus-stock chart from the published reports in light and dark variants, with byte-identical output on every run (`src/inventory_plots.py`, `scripts/plot_inventory_tradeoff.py`).
+- Query the published results with SQL: a SQLite schema with keys and constraints, loaded only after the checksum check, and queries that re-derive the stock endpoints, the cheapest policies and the equal-stock gaps (`sql/`, `src/results_sql.py`, `scripts/query_results.py`).
 
 ### Planning App
 
@@ -970,6 +971,15 @@ Trade-off at `L` = 7 (primary start):
 - **Perfect-foresight reference:** it serves all demand with 14,285 units on hand on average at `L` = 7. MA28 holds 2.3 times as much at 90% fill, and LightGBM 2.7 times.
 
 **Reading the curves at equal stock.** This is a post-hoc summary of the published curves, by linear interpolation over the stock range both methods cover. MA28's fill rate is higher at every stock level: by 2.1–2.7 percentage points at `L` = 7, 1.2–1.6 at `L` = 3, and 1.0–1.2 at `L` = 1. The same holds in every demand group and category at `L` = 7. The gaps are largest in FOODS (2.7–3.5 points) and for frequent-demand items (2.6–3.0), and smallest in HOUSEHOLD (0.4–0.9).
+
+**Checked in SQL.** The queries in [`sql/`](sql/) compute these results a second way, in SQLite with window functions, from the same checksum-verified files: the stock for each target fill rate (by the protocol's interpolation rule), the cheapest policy at any holding cost and lost-sale penalty, and the equal-stock gaps above. Tests check them against the Python engine, the published endpoints and the numbers in this README. Nothing is simulated again.
+
+```bash
+python -m scripts.query_results                         # the headline tables and data checks
+python -m scripts.query_results --target 0.95 --penalty 1
+python -m scripts.query_results --sql "SELECT method, max(fill_rate) FROM policy GROUP BY method"
+python -m scripts.query_results --export phase3_results.sqlite   # for any SQLite client
+```
 
 **Interpretation.** Issue #28 found LightGBM slightly better on daily WAPE but MA28 better on weekly and 28-day WAPE. Order quantities depend on forecasts summed over 8–14 days, so this result is consistent with the longer-horizon metrics. At every grid point LightGBM also held less stock than MA28 (9–12% less at `z` = 0), which is consistent with lower forecast sums. Why is not established. One untested candidate is a limitation already recorded in Issue #28: the model was fitted once, on targets from October 19, 2015 to January 3, 2016, so February to April never appeared in training. Its lag features are rebuilt at every origin, but its weights stay fixed, while MA28 is simply the mean of the latest 28 days.
 
